@@ -45,6 +45,10 @@ export const CreateDmModal: React.FC = () => {
     }
   };
 
+  const handleElsaClick = useCallback(() => {
+    navigate("/dm/0xE15AA1ba585AeA8a4639331ce5f9aEc86f8c4541");
+  }, [navigate]);
+
   useEffect(() => {
     const utils = new Utils();
     utilsRef.current = utils;
@@ -131,6 +135,15 @@ export const CreateDmModal: React.FC = () => {
               setMemberId(event.target.value);
             }}
           />
+          <p>XMTP Agents</p>
+          <Button 
+            color="blue" 
+            fullWidth
+            onClick={handleElsaClick}
+            mt="md">
+            👋 Hey Elsa
+          </Button>
+          <a href="">Add new agent</a>
         </Box>
       </ContentLayout>
     </Modal>

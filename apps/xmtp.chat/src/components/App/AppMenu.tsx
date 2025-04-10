@@ -26,6 +26,9 @@ export const AppMenu: React.FC = () => {
       </Menu.Target>
       <Menu.Dropdown miw={200}>
         <Menu.Label>Actions</Menu.Label>
+        <Menu.Item onClick={() => void navigate("/dm/0xE15AA1ba585AeA8a4639331ce5f9aEc86f8c4541")}>
+          Hey Elsa (Base Agent)
+        </Menu.Item>
         <Menu.Item onClick={() => void navigate("new-dm")}>
           New direct message
         </Menu.Item>
