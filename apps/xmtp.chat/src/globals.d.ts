@@ -17,3 +17,24 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+// Add LUKSO chains to wagmi's Chain type
+declare module "wagmi/chains" {
+  interface ChainConfig {
+    id: number;
+    name: string;
+    network: string;
+    nativeCurrency: {
+      decimals: number;
+      name: string;
+      symbol: string;
+    };
+    rpcUrls: {
+      public: { http: string[] };
+      default: { http: string[] };
+    };
+  }
+
+  const luksoMainnet: ChainConfig;
+  const luksoTestnet: ChainConfig;
+}
