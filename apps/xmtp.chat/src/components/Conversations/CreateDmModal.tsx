@@ -1,4 +1,4 @@
-import { Box, Button, Group, TextInput } from "@mantine/core";
+import { Box, Button, Group, TextInput, Divider, Stack, Title } from "@mantine/core";
 import { Utils, type Conversation } from "@xmtp/browser-sdk";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
@@ -8,6 +8,8 @@ import { useCollapsedMediaQuery } from "@/hooks/useCollapsedMediaQuery";
 import { useConversations } from "@/hooks/useConversations";
 import { useSettings } from "@/hooks/useSettings";
 import { ContentLayout } from "@/layouts/ContentLayout";
+import { ProfileSearch } from "@/components/ProfileSearch";
+import { LuksoProfile } from "@/components/LuksoProfile";
 
 export const CreateDmModal: React.FC = () => {
   const { newDm, newDmWithIdentifier } = useConversations();
@@ -19,6 +21,7 @@ export const CreateDmModal: React.FC = () => {
   const navigate = useNavigate();
   const fullScreen = useCollapsedMediaQuery();
   const contentHeight = fullScreen ? "auto" : 500;
+  const [selectedProfileAddress, setSelectedProfileAddress] = useState<string | null>(null);
 
   const handleClose = useCallback(() => {
     void navigate(-1);
@@ -48,6 +51,11 @@ export const CreateDmModal: React.FC = () => {
   const handleElsaClick = useCallback(() => {
     navigate("/dm/0xE15AA1ba585AeA8a4639331ce5f9aEc86f8c4541");
   }, [navigate]);
+
+  const handleSelectAddress = useCallback((address: `0x${string}`) => {
+    setMemberId(address);
+    setSelectedProfileAddress(address);
+  }, []);
 
   useEffect(() => {
     const utils = new Utils();
@@ -102,7 +110,7 @@ export const CreateDmModal: React.FC = () => {
         </Button>
       </Group>
     );
-  }, [handleClose, handleCreate, loading]);
+  }, [handleClose, handleCreate, loading, memberIdError]);
 
   return (
     <Modal
@@ -121,29 +129,52 @@ export const CreateDmModal: React.FC = () => {
         footer={footer}
         withScrollAreaPadding={false}>
         <Box p="md">
-          <TextInput
-            size="sm"
-            label="Address or inbox ID"
-            styles={{
-              label: {
-                marginBottom: "var(--mantine-spacing-xxs)",
-              },
-            }}
-            error={memberIdError}
-            value={memberId}
-            onChange={(event) => {
-              setMemberId(event.target.value);
-            }}
-          />
-          <p>XMTP Agents</p>
-          <Button 
-            color="blue" 
-            fullWidth
-            onClick={handleElsaClick}
-            mt="md">
-            👋 Hey Elsa
-          </Button>
-          <a href="">Add new agent</a>
+          <Stack spacing="md">
+            <Box>
+              <Title order={5} mb="xs">Search Universal Profiles</Title>
+              <ProfileSearch onSelectAddress={handleSelectAddress} />
+            </Box>
+            
+            {selectedProfileAddress && <LuksoProfile address={selectedProfileAddress} />}
+            
+            <Divider label="Or enter address manually" labelPosition="center" />
+            
+            <TextInput
+              size="sm"
+              label="Address or inbox ID"
+              styles={{
+                label: {
+                  marginBottom: "var(--mantine-spacing-xxs)",
+                },
+              }}
+              error={memberIdError}
+              value={memberId}
+              onChange={(event) => {
+                setMemberId(event.target.value);
+                if (selectedProfileAddress) setSelectedProfileAddress(null);
+              }}
+            />
+            <Divider my="xs" />
+            
+            <Box>
+              <Title order={5} mb="xs">XMTP Agents</Title>
+              <Button 
+                color="blue" 
+                fullWidth
+                onClick={handleElsaClick}
+                mt="xs">
+                👋 Hey Elsa
+              </Button>
+              <Button 
+                component="a" 
+                href="https://xmtp.chat/agents"
+                variant="outline"
+                fullWidth
+                mt="xs">
+                Add new agent
+              </Button>
+            </Box>
+          </Stack>
         </Box>
       </ContentLayout>
     </Modal>
