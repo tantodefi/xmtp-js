@@ -79,7 +79,7 @@ export function ProfileSearch({ onSelectAddress }: SearchProps) {
       setLoading(true);
       try {
         const { search_profiles: data } = (await request(
-          'https://envio.lukso-testnet.universal.tech/v1/graphql',
+          'https://envio.lukso-mainnet.universal.tech/v1/graphql',
           gqlQuery,
           { id: searchQuery }
         )) as { search_profiles: Profile[] };
