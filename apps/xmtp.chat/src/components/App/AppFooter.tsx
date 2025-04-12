@@ -1,5 +1,5 @@
 import { Anchor, Box, Flex, Group, Image, Text } from "@mantine/core";
-import logo from "@/assets/xmtp-icon.png";
+import xmtpLogo from "@/assets/xmtp-icon.png";
 
 export const AppFooter: React.FC = () => {
   return (
@@ -12,56 +12,30 @@ export const AppFooter: React.FC = () => {
           target="_blank"
           flex={0}>
           <Flex align="center" py="md" display="inline-flex">
-            <Image src={logo} alt="XMTP" w="24px" h="24px" fit="contain" />
+            <Image src={xmtpLogo} alt="XMTP" w="24px" h="24px" fit="contain" />
             <Text size="xl" fw={700} ml="xs">
               XMTP
             </Text>
           </Flex>
         </Anchor>
       </Box>
-      <Group gap="xs">
+      <Box>
         <Anchor
-          display="block"
-          target="_blank"
-          underline="hover"
+          href="https://lukso.network"
+          underline="never"
           c="var(--mantine-color-text)"
-          href="https://github.com/xmtp/xmtp-js/blob/main/CONTRIBUTING.md">
-          Contribute
-        </Anchor>
-        <Text size="sm" c="dimmed">
-          •
-        </Text>
-        <Anchor
-          display="block"
           target="_blank"
-          underline="hover"
-          c="var(--mantine-color-text)"
-          href="https://github.com/xmtp/xmtp-js/issues/new/choose">
-          Report an issue
+          flex={0}>
+          <Flex align="center" py="md" display="inline-flex">
+            <Image 
+              src="https://cdn.prod.website-files.com/672bdc274def2fecc6bbcf43/672bdc274def2fecc6bbcf9c_Group%201000001677.svg" 
+              alt="LUKSO" 
+              fit="contain" 
+            />
+         
+          </Flex>
         </Anchor>
-        <Text size="sm" c="dimmed">
-          •
-        </Text>
-        <Anchor
-          display="block"
-          target="_blank"
-          href="https://docs.xmtp.org/"
-          underline="hover"
-          c="var(--mantine-color-text)">
-          Documentation
-        </Anchor>
-        <Text size="sm" c="dimmed">
-          •
-        </Text>
-        <Anchor
-          display="block"
-          target="_blank"
-          underline="hover"
-          c="var(--mantine-color-text)"
-          href="https://community.xmtp.org/">
-          Forums
-        </Anchor>
-      </Group>
+      </Box>
     </Group>
   );
 };
