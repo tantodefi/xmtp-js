@@ -40,6 +40,7 @@ const withTimeout = function <T>(promise: Promise<T>, ms: number): Promise<T> {
 type ProfileProps = {
   address?: string;
   onXmtpAddressFound?: (xmtpAddress: string) => void;
+  currentXmtpAddress?: string;  // Add prop for current XMTP address to compare
 };
 
 type ProfileData = {
@@ -51,7 +52,7 @@ type ProfileData = {
   xmtpAddress?: string | null;
 };
 
-export function LuksoProfile({ address = DEFAULT_ADDRESS, onXmtpAddressFound }: ProfileProps) {
+export function LuksoProfile({ address = DEFAULT_ADDRESS, onXmtpAddressFound, currentXmtpAddress }: ProfileProps) {
   const [profileData, setProfileData] = useState<ProfileData>({
     fullName: 'Loading...',
     imgUrl: '',
@@ -375,6 +376,14 @@ export function LuksoProfile({ address = DEFAULT_ADDRESS, onXmtpAddressFound }: 
               XMTP Address Found
             </Badge>
           )}
+
+          {/* Add a warning message when addresses don't match */}
+          {profileData.xmtpAddress && currentXmtpAddress &&
+            profileData.xmtpAddress.toLowerCase() !== currentXmtpAddress.toLowerCase() && (
+              <Badge color="yellow" mt={5}>
+                Stored XMTP address doesn't match current address
+              </Badge>
+            )}
         </Box>
       </Box>
     </Card>

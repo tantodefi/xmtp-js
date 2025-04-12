@@ -36,7 +36,7 @@ const findOriginalUpAddress = (): string | null => {
   try {
     // The pattern used in Connect.tsx is 'lukso_ephemeral_key_{address}'
     const KEY_PREFIX = 'lukso_ephemeral_key_';
-    
+
     // Scan all localStorage keys
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
@@ -47,14 +47,14 @@ const findOriginalUpAddress = (): string | null => {
         return upAddress;
       }
     }
-    
+
     // Check if there's a specific key for the UP address
     const upAddress = localStorage.getItem('lukso_up_address');
     if (upAddress) {
       console.log("Found UP address in dedicated localStorage key:", upAddress);
       return upAddress;
     }
-    
+
     return null;
   } catch (error) {
     console.error("Error accessing localStorage:", error);
@@ -66,36 +66,36 @@ const findOriginalUpAddress = (): string | null => {
 const safeGetContextAccounts = async (): Promise<string | null> => {
   try {
     // Check if window.lukso exists and has the required methods
-    if (typeof window !== 'undefined' && 
-        window.lukso && 
-        typeof window.lukso.request === 'function') {
-      
+    if (typeof window !== 'undefined' &&
+      window.lukso &&
+      typeof window.lukso.request === 'function') {
+
       // Try to get contextAccounts first
-      if (window.lukso.contextAccounts && 
-          Array.isArray(window.lukso.contextAccounts) && 
-          window.lukso.contextAccounts.length > 0) {
+      if (window.lukso.contextAccounts &&
+        Array.isArray(window.lukso.contextAccounts) &&
+        window.lukso.contextAccounts.length > 0) {
         return window.lukso.contextAccounts[0].toLowerCase();
       }
-      
+
       // Otherwise try the up_contextAccounts RPC method
       try {
         const contextAccounts = await window.lukso.request({
           method: 'up_contextAccounts',
           params: []
         });
-        
+
         if (Array.isArray(contextAccounts) && contextAccounts.length > 0) {
           return contextAccounts[0].toLowerCase();
         }
       } catch (innerError) {
         console.log("Error calling up_contextAccounts, falling back to eth_accounts");
       }
-      
+
       // Fall back to eth_accounts as last resort
-      const accounts = await window.lukso.request({ 
-        method: 'eth_accounts' 
+      const accounts = await window.lukso.request({
+        method: 'eth_accounts'
       });
-      
+
       if (Array.isArray(accounts) && accounts.length > 0) {
         return accounts[0].toLowerCase();
       }
@@ -130,7 +130,7 @@ export const IdentityModal: React.FC = () => {
       client.accountIdentifier?.identifier.toLowerCase() ?? null,
     );
   }, [client.accountIdentifier]);
-  
+
   // Try to get the original UP address from localStorage first, then fall back to provider methods
   useEffect(() => {
     const getUpAddress = async () => {
@@ -140,7 +140,7 @@ export const IdentityModal: React.FC = () => {
         setUpAddress(storedUpAddress);
         return;
       }
-      
+
       // If not found in localStorage, try provider methods
       const providerAddress = await safeGetContextAccounts();
       if (providerAddress) {
@@ -148,10 +148,10 @@ export const IdentityModal: React.FC = () => {
         setUpAddress(providerAddress);
       }
     };
-    
+
     // Initial fetch
     getUpAddress().catch(console.error);
-    
+
     // Set up event listener for context accounts changes
     const setupEventListener = async () => {
       if (typeof window !== 'undefined' && window.lukso) {
@@ -162,15 +162,15 @@ export const IdentityModal: React.FC = () => {
               setUpAddress(accounts[0].toLowerCase());
             }
           };
-          
+
           // Add event listener
           const luksoProvider = window.lukso;
           if (luksoProvider && typeof luksoProvider.on === 'function') {
             luksoProvider.on('contextAccountsChanged', contextAccountsChangedHandler);
-            
+
             // Log successful event registration
             console.log("Successfully registered contextAccountsChanged event");
-            
+
             // Return cleanup function
             return () => {
               if (luksoProvider && typeof luksoProvider.removeListener === 'function') {
@@ -183,7 +183,7 @@ export const IdentityModal: React.FC = () => {
         }
       }
     };
-    
+
     const cleanup = setupEventListener();
     return () => {
       if (cleanup) cleanup.then(fn => fn && fn());
@@ -212,20 +212,20 @@ export const IdentityModal: React.FC = () => {
 
     try {
       setIsUploadingMetadata(true);
-      
+
       // Create tag data
       const xmtpTag = `xmtp:${accountIdentifier}`;
       console.log(`Updating metadata with tag: ${xmtpTag}`);
-      
+
       // Using a custom key for XMTP metadata to avoid conflicts
       const xmtpKeyName = 'XMTPAddress';
       // Key hash is generated from the name using keccak256
       const xmtpKey = '0x5ef83ad9559033e6e941db7d7c495acdce616347d28e90c7ce47cbfcfcad3bc5';
-      
+
       try {
         // First check if we have an active provider
         let provider: ethers.BrowserProvider | null = null;
-        
+
         if (window.lukso && typeof window.lukso.request === 'function') {
           provider = new ethers.BrowserProvider(window.lukso as Eip1193Provider);
           console.log("Using LUKSO provider");
@@ -245,7 +245,7 @@ export const IdentityModal: React.FC = () => {
         // Get the signer
         const signer = await provider.getSigner();
         const signerAddress = await signer.getAddress();
-        
+
         // Verify the signer matches the UP address
         if (signerAddress.toLowerCase() !== upAddress.toLowerCase()) {
           throw new Error(`Connected account (${signerAddress}) does not match UP address (${upAddress})`);
@@ -351,11 +351,17 @@ export const IdentityModal: React.FC = () => {
           <Stack gap="md" p="md">
             {/* Always prioritize UP address for the profile display */}
             {upAddress ? (
-              <LuksoProfile address={upAddress} />
+              <LuksoProfile
+                address={upAddress}
+                currentXmtpAddress={accountIdentifier || undefined}
+              />
             ) : (
-              accountIdentifier && <LuksoProfile address={accountIdentifier} />
+              accountIdentifier && <LuksoProfile
+                address={accountIdentifier}
+                currentXmtpAddress={accountIdentifier}
+              />
             )}
-            
+
             <Paper p="md" radius="md" withBorder pos="relative">
               <LoadingOverlay visible={isUploadingMetadata} zIndex={1000} overlayProps={{ blur: 2 }} />
               <Stack gap="md">
