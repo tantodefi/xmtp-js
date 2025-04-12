@@ -21,6 +21,15 @@ import { useIdentity } from "@/hooks/useIdentity";
 import { ContentLayout } from "@/layouts/ContentLayout";
 import { ERC725 } from "@erc725/erc725.js";
 import { notifications } from "@mantine/notifications";
+import { ethers } from "ethers";
+import { UniversalProfileArtifact } from "@/artifacts/UniversalProfile";
+
+// Add EIP-1193 provider type definition
+interface Eip1193Provider {
+  request: (request: { method: string; params?: any[] | Record<string, any> }) => Promise<any>;
+  on?: (event: string, callback: (accounts: string[]) => void) => void;
+  removeListener?: (event: string, callback: (accounts: string[]) => void) => void;
+}
 
 // Find the original UP address from localStorage
 const findOriginalUpAddress = (): string | null => {
@@ -204,352 +213,112 @@ export const IdentityModal: React.FC = () => {
     try {
       setIsUploadingMetadata(true);
       
-      // Create tag data - use a standard format
+      // Create tag data
       const xmtpTag = `xmtp:${accountIdentifier}`;
       console.log(`Updating metadata with tag: ${xmtpTag}`);
       
-      // Using a custom key for XMTP metadata
+      // Using a custom key for XMTP metadata to avoid conflicts
       const xmtpKeyName = 'XMTPAddress';
       // Key hash is generated from the name using keccak256
       const xmtpKey = '0x5ef83ad9559033e6e941db7d7c495acdce616347d28e90c7ce47cbfcfcad3bc5';
       
       try {
-        // Get the provider
-        let provider: { request: (args: any) => Promise<any> } | null = null;
+        // First check if we have an active provider
+        let provider: ethers.BrowserProvider | null = null;
         
         if (window.lukso && typeof window.lukso.request === 'function') {
-          provider = window.lukso as { request: (args: any) => Promise<any> };
+          provider = new ethers.BrowserProvider(window.lukso as Eip1193Provider);
           console.log("Using LUKSO provider");
         } else if (window.ethereum && typeof window.ethereum.request === 'function') {
-          provider = window.ethereum as { request: (args: any) => Promise<any> };
+          provider = new ethers.BrowserProvider(window.ethereum as Eip1193Provider);
           console.log("Using Ethereum provider");
         } else {
           throw new Error("No compatible provider found. Please make sure you have the LUKSO browser extension installed.");
         }
-        
-        // Double check provider is active by requesting accounts
-        console.log("Requesting accounts to ensure wallet connection...");
-        const accounts = await provider.request({
-          method: 'eth_requestAccounts',
-          params: []
-        });
-        
+
+        // Request account access if needed
+        const accounts = await provider.send('eth_requestAccounts', []);
         if (!accounts || accounts.length === 0) {
-          throw new Error("No accounts found. Please make sure your wallet is connected.");
+          throw new Error("No accounts found. Please connect your wallet.");
         }
+
+        // Get the signer
+        const signer = await provider.getSigner();
+        const signerAddress = await signer.getAddress();
         
-        console.log("Connected accounts:", accounts);
-        
-        const currentAccount = accounts[0].toLowerCase();
-        console.log("Active wallet account:", currentAccount);
-        
-        // IMPORTANT: In LUKSO, the connected account is typically an EOA (externally owned account)
-        // and NOT the Universal Profile address. The EOA controls the UP via the KeyManager.
-        // So, we use the stored UP address as the target, and the connected EOA as the controller.
-        
-        // The UP we want to modify is the one stored in upAddress
-        const targetUpAddress = upAddress;
-        console.log("Target UP address for update:", targetUpAddress);
-        
-        // The current account (EOA) will be the controller that signs the transaction
-        const controllerAddress = currentAccount;
-        console.log("Controller address (EOA):", controllerAddress);
-        
-        // Create the RPC provider for data lookups
-        const RPC_URL = 'https://rpc.lukso.gateway.fm';
-        
-        // Function to get the KeyManager address for a UP
-        const getKeyManagerAddress = async (address: string): Promise<string | null> => {
-          try {
-            console.log("Fetching KeyManager for UP address:", address);
-            
-            // Make a direct call to read the storage slot 0x4
-            // This contains the KeyManager address in LUKSO UPs
-            const response = await fetch(RPC_URL, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                jsonrpc: '2.0',
-                id: 1,
-                method: 'eth_getStorageAt',
-                params: [
-                  address,
-                  '0x0000000000000000000000000000000000000000000000000000000000000004',
-                  'latest'
-                ]
-              })
-            });
-            
-            const data = await response.json();
-            console.log("Storage slot data:", data);
-            
-            if (data.error) {
-              console.error("Error getting storage:", data.error);
-              return null;
-            }
-            
-            // The storage value is 32 bytes, and the address is in the last 20 bytes
-            if (data.result && data.result !== '0x0000000000000000000000000000000000000000000000000000000000000000') {
-              // Extract the last 20 bytes (40 hex chars)
-              const keyManagerAddress = '0x' + data.result.substring(26).toLowerCase();
-              console.log("Extracted KeyManager address:", keyManagerAddress);
-              
-              // Sanity check - make sure it's a valid address format
-              if (/^0x[0-9a-f]{40}$/.test(keyManagerAddress)) {
-                return keyManagerAddress;
-              } else {
-                console.log("Invalid KeyManager address format:", keyManagerAddress);
-              }
-            } else {
-              console.log("No KeyManager found in storage slot");
-            }
-            
-            return null;
-          } catch (error) {
-            console.error("Error fetching KeyManager:", error);
-            return null;
+        // Verify the signer matches the UP address
+        if (signerAddress.toLowerCase() !== upAddress.toLowerCase()) {
+          throw new Error(`Connected account (${signerAddress}) does not match UP address (${upAddress})`);
+        }
+
+        // Set up the Universal Profile contract interface
+        const universalProfile = new ethers.Contract(
+          upAddress,
+          UniversalProfileArtifact.abi,
+          signer
+        );
+
+        // First read existing metadata
+        let existingMetadata = {};
+        try {
+          const existingData = await universalProfile.getData(xmtpKey);
+          if (existingData && existingData !== '0x') {
+            const decodedData = ethers.toUtf8String(existingData);
+            existingMetadata = JSON.parse(decodedData);
+            console.log('Existing metadata:', existingMetadata);
+          }
+        } catch (error) {
+          console.log('No existing metadata found, starting fresh');
+        }
+
+        // Create the metadata object, preserving existing data
+        const xmtpMetadata = {
+          ...existingMetadata,
+          xmtp: {
+            address: accountIdentifier,
+            timestamp: Date.now(),
+            version: '1.0'
           }
         };
-        
-        // Create the data value
-        const dataValue = [{ 
-          keyName: xmtpKeyName, 
-          key: xmtpKey, 
-          value: xmtpTag 
-        }];
-        
-        // Generate the setData call that we want to execute
-        const functionSelector = '0x14a6e293'; // setData
-        const keyHex = xmtpKey.startsWith('0x') ? xmtpKey.substring(2) : xmtpKey;
-        const encoder = new TextEncoder();
-        const valueBytes = encoder.encode(xmtpTag);
-        const valueHex = Array.from(valueBytes)
-          .map(b => b.toString(16).padStart(2, '0'))
-          .join('');
-        const dataOffset = '0000000000000000000000000000000000000000000000000000000000000020';
-        const dataLength = valueBytes.length.toString(16).padStart(64, '0');
-        
-        // Construct the setData call - make sure it has the 0x prefix
-        const setDataCall = '0x' + functionSelector.replace('0x', '') + keyHex + dataOffset + dataLength + valueHex;
-        console.log("setData call:", setDataCall);
 
-        // Try to determine if we need to use KeyManager or direct call
-        const keyManagerAddress = await getKeyManagerAddress(targetUpAddress);
-        console.log("KeyManager detection result:", keyManagerAddress);
-        
-        let txParams;
-        
-        // ALWAYS use KeyManager if available
-        if (keyManagerAddress && keyManagerAddress !== '0x0000000000000000000000000000000000000000') {
-          console.log("Using KeyManager at:", keyManagerAddress);
-          
-          // We need to use the executeFor function on the KeyManager
-          // executeFor signature: 0xb61d27f6
-          const executeForSelector = '0xb61d27f6';
-          
-          // Parameters for executeFor:
-          // 1. Target address (the UP) - 32 bytes
-          // 2. Value (0 for setData) - 32 bytes
-          // 3. Offset to data (32 bytes)
-          // 4. Data length (32 bytes)
-          // 5. Data (the setData call)
-          
-          // 1. Target address padded to 32 bytes
-          // First make sure we have the full address with 0x prefix
-          const fullTargetAddress = targetUpAddress.startsWith('0x') ? targetUpAddress : '0x' + targetUpAddress;
-          // Remove 0x prefix and then pad LEFT to 32 bytes (64 hex chars)
-          const paddedTarget = '000000000000000000000000' + fullTargetAddress.substring(2);
-          console.log("Padded target UP address:", paddedTarget);
-          
-          // 2. Value (0) - 32 bytes
-          const valueParam = '0000000000000000000000000000000000000000000000000000000000000000';
-          
-          // 3. Offset to data (32 * 3 = 96 bytes)
-          const dataParamOffset = '0000000000000000000000000000000000000000000000000000000000000060';
-          
-          // 4. Data length 
-          const setDataCallWithoutPrefix = setDataCall.startsWith('0x') ? setDataCall.substring(2) : setDataCall;
-          const setDataCallLength = setDataCallWithoutPrefix.length / 2; // /2 because hex
-          const setDataCallLengthHex = setDataCallLength.toString(16).padStart(64, '0');
-          console.log("setData call length (bytes):", setDataCallLength);
-          console.log("setData call length (hex):", setDataCallLengthHex);
-          
-          // 5. Data (the setData call without '0x')
-          
-          // Construct the executeFor call
-          const executeForCall = '0x' + executeForSelector + 
-                               paddedTarget + 
-                               valueParam + 
-                               dataParamOffset + 
-                               setDataCallLengthHex + 
-                               setDataCallWithoutPrefix;
-          
-          console.log("executeFor call:", executeForCall);
-          
-          txParams = {
-            from: controllerAddress, // This is the EOA that controls the UP
-            to: keyManagerAddress,   // This is the KeyManager contract
-            data: executeForCall     // This is the executeFor call
-          };
-          
-          console.log("Using KeyManager transaction parameters:", txParams);
-        } else {
-          console.log("‼️ No KeyManager found - this will likely fail");
-          notifications.show({
-            title: "Warning",
-            message: "No KeyManager found. The transaction will likely fail.",
-            color: "red",
-          });
-          
-          // For safety, look up in known mappings - common for LSP0 UP implementations
-          // Try to manually find the KeyManager using a standard pattern
-          // Most UPs follow this structure where KeyManager is at address + 1
-          console.log("Trying to guess KeyManager using standard pattern...");
-          
-          // Parse the UP address to a BigInt, add 1, and convert back to hex
-          try {
-            const upAddressBigInt = BigInt(targetUpAddress);
-            const possibleKeyManager = '0x' + (upAddressBigInt + 1n).toString(16);
-            console.log("Possible KeyManager address:", possibleKeyManager);
-            
-            // Use the executeFor pattern with this address
-            // 1. Target address padded to 32 bytes
-            const fullTargetAddress = targetUpAddress.startsWith('0x') ? targetUpAddress : '0x' + targetUpAddress;
-            const paddedTarget = '000000000000000000000000' + fullTargetAddress.substring(2);
-            
-            // 2. Value (0) - 32 bytes
-            const valueParam = '0000000000000000000000000000000000000000000000000000000000000000';
-            
-            // 3. Offset to data (32 * 3 = 96 bytes)
-            const dataParamOffset = '0000000000000000000000000000000000000000000000000000000000000060';
-            
-            // 4. Data length 
-            const setDataCallWithoutPrefix = setDataCall.startsWith('0x') ? setDataCall.substring(2) : setDataCall;
-            const setDataCallLength = setDataCallWithoutPrefix.length / 2;
-            const setDataCallLengthHex = setDataCallLength.toString(16).padStart(64, '0');
-            
-            // 5. Construct the executeFor call
-            const executeForSelector = '0xb61d27f6';
-            const executeForCall = '0x' + executeForSelector + 
-                                paddedTarget + 
-                                valueParam + 
-                                dataParamOffset + 
-                                setDataCallLengthHex + 
-                                setDataCallWithoutPrefix;
-            
-            txParams = {
-              from: controllerAddress,
-              to: possibleKeyManager,
-              data: executeForCall
-            };
-            
-            console.log("Using guessed KeyManager transaction parameters:", txParams);
-            
-            notifications.show({
-              title: "Info",
-              message: "Using guessed KeyManager address. Transaction may still fail.",
-              color: "blue",
-            });
-          } catch (err) {
-            console.error("Failed to guess KeyManager:", err);
-            
-            // Fall back to direct call as last resort
-            txParams = {
-              from: controllerAddress,  // Controller address (EOA)
-              to: targetUpAddress,      // UP address
-              data: setDataCall
-            };
-          }
-        }
-        
-        console.log("Transaction parameters:", txParams);
-        
-        // Send the transaction
-        console.log("About to send transaction:", txParams);
-        try {
-          // Add a notification to show we're waiting for wallet confirmation
-          notifications.show({
-            title: "Waiting for wallet",
-            message: "Please confirm the transaction in your wallet",
-            color: "blue",
-            loading: true,
-            autoClose: false,
-            id: "wallet-confirm"
-          });
-          
-          // Make sure we have the 0x prefix on data
-          if (txParams.data && !txParams.data.startsWith('0x')) {
-            txParams.data = '0x' + txParams.data;
-          }
-          
-          // Check if we need special UP permissions
-          if (window.lukso && 'permissions' in window.lukso) {
-            try {
-              console.log("Checking for UP permissions...");
-              
-              // Request UP specific permissions if available
-              if (typeof window.lukso.request === 'function') {
-                // Look for UP specific methods
-                await window.lukso.request({
-                  method: 'eth_requestAccounts',
-                  params: []
-                });
-                
-                console.log("UP wallet permissions confirmed");
-              }
-            } catch (permError) {
-              console.error("Error requesting UP permissions:", permError);
-              // Continue anyway as we'll try the transaction
-            }
-          }
-          
-          // Send using universal provider detection
-          console.log("Sending transaction via eth_sendTransaction...");
-          const txHash = await provider.request({
-            method: 'eth_sendTransaction',
-            params: [txParams]
-          });
-          
-          // Close the waiting notification
-          notifications.hide("wallet-confirm");
-          
-          console.log("Transaction submitted:", txHash);
-          
-          notifications.show({
-            title: "Metadata Updated",
-            message: "Your UP metadata has been updated with your XMTP address. Transaction: " + txHash,
-            color: "green",
-          });
-        } catch (txError) {
-          // Close the waiting notification
-          notifications.hide("wallet-confirm");
-          
-          console.error("Transaction error:", txError);
-          const errorMessage = txError instanceof Error 
-            ? txError.message 
-            : (typeof txError === 'object' && txError !== null && 'message' in txError)
-              ? (txError as {message: string}).message
-              : "Unknown transaction error";
-              
-          notifications.show({
-            title: "Transaction Failed",
-            message: errorMessage,
-            color: "red",
-          });
-          
-          throw txError;
-        }
-      } catch (err) {
-        console.error("Transaction preparation error:", err);
-        throw err;
+        // Encode the metadata as bytes
+        const encodedMetadata = ethers.toUtf8Bytes(JSON.stringify(xmtpMetadata));
+
+        // Encode the function call for setData
+        const setDataPayload = universalProfile.interface.encodeFunctionData('setData', [
+          xmtpKey,
+          encodedMetadata
+        ]);
+
+        // Execute the transaction through the Universal Profile
+        const tx = await universalProfile.execute(
+          0, // Operation type: CALL
+          upAddress, // Target: Universal Profile
+          0, // Value
+          setDataPayload
+        );
+
+        const receipt = await tx.wait();
+        console.log('Metadata update transaction:', receipt);
+
+        notifications.show({
+          title: "Success",
+          message: "Metadata updated successfully",
+          color: "green",
+        });
+      } catch (error) {
+        console.error('Error updating metadata:', error);
+        notifications.show({
+          title: "Error",
+          message: error instanceof Error ? error.message : "Failed to update metadata",
+          color: "red",
+        });
       }
     } catch (error) {
-      console.error("Error updating metadata:", error);
+      console.error('Error in metadata upload:', error);
       notifications.show({
         title: "Error",
-        message: error instanceof Error ? error.message : "Failed to update metadata",
+        message: error instanceof Error ? error.message : "Failed to upload metadata",
         color: "red",
       });
     } finally {

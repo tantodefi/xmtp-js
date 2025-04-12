@@ -8,10 +8,14 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
+
+// Cache key for preventing duplicate client creations
+const XMTP_CACHE_KEY_PREFIX = "xmtp:last_client_";
 
 export type InitializeClientOptions = {
   dbEncryptionKey?: Uint8Array;
@@ -91,9 +95,30 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
         try {
           console.log("Creating XMTP client with signer type:", signer.type);
           
+          // Get identifier to track sessions per address
+          const identifier = await signer.getIdentifier();
+          const address = identifier?.identifier?.toLowerCase();
+          
+          // Check if we already created a client for this address in this session
+          if (address) {
+            const lastClientCreationTime = localStorage.getItem(XMTP_CACHE_KEY_PREFIX + address);
+            const now = Date.now();
+            if (lastClientCreationTime) {
+              const timeSinceLastCreation = now - parseInt(lastClientCreationTime);
+              console.log(`Time since last client creation for ${address}: ${timeSinceLastCreation}ms`);
+              
+              // If we created a client for this address less than 1 hour ago, log a warning
+              if (timeSinceLastCreation < 60 * 60 * 1000) {
+                console.warn(`Creating a new XMTP client for ${address} within 1 hour of the last creation. This may lead to multiple sessions.`);
+              }
+            }
+            
+            // Update the last creation time for this address
+            localStorage.setItem(XMTP_CACHE_KEY_PREFIX + address, now.toString());
+          }
+          
           // Test the signer's getIdentifier method
           try {
-            const identifier = await signer.getIdentifier();
             console.log("Signer identifier:", identifier);
             
             if (!identifier || !identifier.identifier || !identifier.identifierKind) {
@@ -140,6 +165,7 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
               new WalletSendCallsCodec(),
             ],
           });
+          
           console.log("XMTP client created successfully");
           setClient(xmtpClient);
         } catch (e) {
@@ -174,6 +200,7 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
     if (client) {
       client.close();
       setClient(undefined);
+      console.log("XMTP client disconnected");
     }
   }, [client, setClient]);
 
