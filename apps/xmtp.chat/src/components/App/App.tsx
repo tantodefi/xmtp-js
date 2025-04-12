@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from "react-router";
+import { WhiskSdkProvider } from '@paperclip-labs/whisk-sdk';
 import { AppLayout } from "@/components/App/AppLayout";
 import { Disconnect } from "@/components/App/Disconnect";
 import { ErrorModal } from "@/components/App/ErrorModal";
@@ -21,7 +22,10 @@ export const App: React.FC = () => {
   useAnalytics();
 
   return (
-    <>
+    <WhiskSdkProvider
+      apiKey={import.meta.env.VITE_WHISK_API_KEY}
+      config={{}}
+    >
       <ErrorModal />
       <Routes>
         <Route path="/welcome" element={<WelcomeLayout />}>
@@ -54,6 +58,6 @@ export const App: React.FC = () => {
           <Route path="disconnect" element={<Disconnect />} />
         </Route>
       </Routes>
-    </>
+    </WhiskSdkProvider>
   );
 };

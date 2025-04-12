@@ -1,15 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-
-// Import Whisk dynamically if available
-let WhiskSDK: any;
-try {
-  // Attempt to import the Whisk SDK
-  WhiskSDK = require('@paperclip-labs/whisk-sdk');
-  console.log('Whisk SDK imported successfully:', WhiskSDK);
-} catch (error) {
-  console.warn('Whisk SDK import failed:', error);
-  WhiskSDK = null;
-}
+import { useWhiskSdkContext } from '@paperclip-labs/whisk-sdk';
 
 // This type mirrors what we expect from the Whisk SDK
 type WhiskIdentity = {
@@ -18,13 +8,21 @@ type WhiskIdentity = {
   address: string;
 };
 
+// Type for the GraphQL response
+type ResolveIdentityResponse = {
+  identity: {
+    name?: string;
+    avatar?: string;
+  } | null;
+};
+
 // RPC endpoint for LUKSO mainnet - reuse existing constants if available
 const RPC_ENDPOINT = "https://rpc.mainnet.lukso.network";
 
 // Ethereum mainnet RPC for ENS resolution
-const ETH_RPC_ENDPOINT = "https://mainnet.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161";
+const ETH_RPC_ENDPOINT = "https://eth-mainnet.g.alchemy.com/v2/demo"; // Using Alchemy's public endpoint
 
-// ENS Reverse Records contract address
+// ENS Reverse Records contract address (updated)
 const ENS_REVERSE_RECORDS = "0x3671aE578E63FdF66ad4F3E12CC0c0d71Ac7510C";
 
 // Cache results to avoid unnecessary network requests
@@ -42,27 +40,8 @@ export const useWhiskIdentity = (address: string | null) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   
-  // Create a whisk client if the SDK is available
-  const [whiskClient] = useState(() => {
-    if (WhiskSDK && typeof WhiskSDK.default === 'function') {
-      try {
-        console.log('Creating Whisk client with constructor:', WhiskSDK.default);
-        return new WhiskSDK.default();
-      } catch (error) {
-        console.error('Failed to create Whisk client:', error);
-      }
-    } else if (WhiskSDK && typeof WhiskSDK.Whisk === 'function') {
-      try {
-        console.log('Creating Whisk client with named export:', WhiskSDK.Whisk);
-        return new WhiskSDK.Whisk();
-      } catch (error) {
-        console.error('Failed to create Whisk client:', error);
-      }
-    }
-    
-    console.log('No valid Whisk constructor found');
-    return null;
-  });
+  // Use the Whisk SDK context
+  const { whiskClient } = useWhiskSdkContext();
 
   // Helper function to shorten addresses for display
   const shortenAddress = useCallback((addr: string): string => {
@@ -98,8 +77,36 @@ export const useWhiskIdentity = (address: string | null) => {
     try {
       console.log('Trying to resolve ENS name for:', addr);
       
-      // Step 1: Use the ENS Reverse Records contract which is more reliable
-      // This contract has a function getNames(addresses[]) that returns string[]
+      // First try the ENS Public Resolver API
+      const resolverResponse = await fetch(`https://api.ensideas.com/ens/resolve/${addr}`);
+      if (resolverResponse.ok) {
+        const resolverData = await resolverResponse.json();
+        if (resolverData?.name) {
+          console.log('Found ENS name via public resolver:', resolverData.name);
+          
+          // Try to get avatar
+          let avatar;
+          try {
+            const avatarResponse = await fetch(`https://metadata.ens.domains/mainnet/avatar/${resolverData.name}`, {
+              headers: { Accept: 'image/*' }
+            });
+            
+            if (avatarResponse.ok) {
+              avatar = avatarResponse.url;
+              console.log('Found ENS avatar URL:', avatar);
+            }
+          } catch (avatarError) {
+            console.error('Error fetching ENS avatar:', avatarError);
+          }
+          
+          return { 
+            name: resolverData.name,
+            avatar
+          };
+        }
+      }
+      
+      // If public resolver fails, try the Reverse Records contract
       const response = await fetch(ETH_RPC_ENDPOINT, {
         method: 'POST',
         headers: {
@@ -112,7 +119,6 @@ export const useWhiskIdentity = (address: string | null) => {
           params: [
             {
               to: ENS_REVERSE_RECORDS,
-              // getNames([address]) function call
               data: `0x8e440c1d000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000010000000000000000000000${addr.slice(2).toLowerCase()}`
             },
             'latest'
@@ -320,21 +326,29 @@ export const useWhiskIdentity = (address: string | null) => {
   const tryWhiskResolution = useCallback(async (addr: string): Promise<WhiskIdentity | null> => {
     try {
       // If Whisk client is not available, skip this step
-      if (!whiskClient || !whiskClient.identity || typeof whiskClient.identity.resolveName !== 'function') {
+      if (!whiskClient) {
         console.log('Whisk client not available, skipping Whisk resolution');
         return null;
       }
       
       console.log('Trying Whisk resolution for:', addr);
       
-      // Use the Whisk SDK
-      const result = await whiskClient.identity.resolveName(addr);
+      // Use the Whisk GraphQL API to resolve the identity
+      const result = await whiskClient.request<ResolveIdentityResponse>(`
+        query ResolveIdentity($address: String!) {
+          identity(address: $address) {
+            name
+            avatar
+          }
+        }
+      `, { address: addr });
+
       console.log('Whisk resolution result:', result);
       
-      if (result && (result.name || result.avatar)) {
+      if (result?.identity && (result.identity.name || result.identity.avatar)) {
         return {
-          name: result.name || shortenAddress(addr),
-          avatar: result.avatar,
+          name: result.identity.name || shortenAddress(addr),
+          avatar: result.identity.avatar,
           address: addr
         };
       }
@@ -353,6 +367,7 @@ export const useWhiskIdentity = (address: string | null) => {
     
     // Normalize the address
     const normalizedAddr = normalizeAddress(addr);
+    console.log('Resolving identity for address:', normalizedAddr);
     
     if (!normalizedAddr.startsWith('0x')) {
       console.warn('Not a valid Ethereum address format:', addr);
@@ -374,6 +389,7 @@ export const useWhiskIdentity = (address: string | null) => {
       
       // First, try to resolve ENS name
       const ensResult = await tryResolveENS(normalizedAddr);
+      console.log('ENS resolution result:', ensResult);
       
       if (ensResult && ensResult.name) {
         console.log('Found ENS name:', ensResult.name);
@@ -390,6 +406,7 @@ export const useWhiskIdentity = (address: string | null) => {
       
       // If primary ENS resolution fails, try alternative methods
       const altEnsResult = await tryAlternativeENSResolution(normalizedAddr);
+      console.log('Alternative ENS resolution result:', altEnsResult);
       
       if (altEnsResult && altEnsResult.name) {
         console.log('Found ENS name via alternative method:', altEnsResult.name);
@@ -406,6 +423,7 @@ export const useWhiskIdentity = (address: string | null) => {
       
       // If no ENS name, try to get Universal Profile data
       const upProfile = await tryGetUPProfile(normalizedAddr);
+      console.log('UP profile result:', upProfile);
       
       if (upProfile) {
         console.log('Found UP profile:', upProfile);
@@ -414,6 +432,7 @@ export const useWhiskIdentity = (address: string | null) => {
       
       // If no UP profile, try Whisk SDK
       const whiskResult = await tryWhiskResolution(normalizedAddr);
+      console.log('Whisk resolution result:', whiskResult);
       
       if (whiskResult) {
         console.log('Found Whisk identity:', whiskResult);

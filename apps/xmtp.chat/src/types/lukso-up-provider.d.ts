@@ -34,4 +34,21 @@ declare module '@lukso/up-provider' {
   }
 
   export function createUPProviderConnector(provider: any, rpcUrls: string[]): UPProviderConnector;
+}
+
+// Add global window interface extension
+interface Window {
+  lukso?: {
+    request?: (args: { method: string, params?: any[] }) => Promise<any>;
+    on?: (event: string, callback: (accounts: string[]) => void) => void;
+    removeListener?: (event: string, callback: (accounts: string[]) => void) => void;
+    contextAccounts?: string[];
+  };
+  ethereum?: {
+    request?: (args: { method: string, params?: any[] }) => Promise<any>;
+    on?: (event: string, callback: (accounts: string[]) => void) => void;
+    removeListener?: (event: string, callback: (accounts: string[]) => void) => void;
+    isLukso?: boolean; // Flag sometimes set by LUKSO providers
+    isUniversalProfile?: boolean; // Flag sometimes set by LUKSO providers
+  };
 } 
