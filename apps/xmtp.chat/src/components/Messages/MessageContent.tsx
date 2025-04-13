@@ -1,9 +1,13 @@
 import { Code, Paper, Text } from "@mantine/core";
 
 export type MessageContentProps = {
-  content: string;
+  content: any;
 };
 
+/**
+ * Renders the content of a message. This is a simple component for now,
+ * but could be extended to handle different content types.
+ */
 export const MessageContent: React.FC<MessageContentProps> = ({ content }) => {
   return typeof content === "string" ? (
     <Paper

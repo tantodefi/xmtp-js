@@ -1,10 +1,11 @@
-import { Box, Card, Flex, Stack, Text, Image, Tooltip } from "@mantine/core";
-import { Dm, Group, type Conversation } from "@xmtp/browser-sdk";
+import { Box, Card, Flex, Stack, Text, Image, Tooltip, Group } from "@mantine/core";
+import { Dm, Group as XmtpGroup, type Conversation } from "@xmtp/browser-sdk";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import makeBlockie from 'ethereum-blockies-base64';
 import { useWhiskIdentity } from "@/hooks/useWhiskIdentity";
 import { useXMTP } from "@/contexts/XMTPContext";
+import { EditableAnonBadge } from "@/components/EditableAnonBadge";
 import styles from "./ConversationCard.module.css";
 
 // This will be enabled when Whisk SDK is installed
@@ -25,20 +26,20 @@ export const ConversationCard: React.FC<ConversationCardProps> = ({
   const navigate = useNavigate();
   const { conversationId } = useParams();
   const { client } = useXMTP();
-  
+
   // Use our Whisk identity hook to resolve the peer address
   const { identity, isLoading, shortenAddress, whiskAvailable } = useWhiskIdentity(peerAddress);
 
   // Function to extract Ethereum address from any string
   const extractEthereumAddress = (input: string | null | undefined): string | null => {
     if (!input) return null;
-    
+
     // Standard Ethereum address pattern (0x followed by 40 hex chars)
     const ethAddressMatch = input.match(/0x[a-fA-F0-9]{40}/i);
     if (ethAddressMatch) {
       return ethAddressMatch[0].toLowerCase();
     }
-    
+
     // More lenient pattern for non-standard formats
     if (input.includes('0x')) {
       const lenientMatch = input.match(/0x[a-fA-F0-9]{6,}/i);
@@ -46,10 +47,10 @@ export const ConversationCard: React.FC<ConversationCardProps> = ({
         return lenientMatch[0].toLowerCase();
       }
     }
-    
+
     return null;
   };
-  
+
   useEffect(() => {
     void conversation.members().then((members) => {
       setMemberCount(members.length);
@@ -58,82 +59,98 @@ export const ConversationCard: React.FC<ConversationCardProps> = ({
 
   useEffect(() => {
     const processPeerIdentity = async () => {
-      if (conversation instanceof Group) {
+      if (conversation instanceof XmtpGroup) {
         setName(conversation.name ?? "Group");
       } else if (conversation instanceof Dm) {
         try {
           // Get the peer's inbox ID
           const rawPeerInboxId = await conversation.peerInboxId();
-          console.log('Raw peer inbox ID:', rawPeerInboxId);
+          console.log('[ConversationCard] Raw peer inbox ID:', rawPeerInboxId);
           setInboxId(rawPeerInboxId);
-          
+
           // Get all conversation members
           const members = await conversation.members();
-          console.log('All conversation members:', members);
-          
+          console.log('[ConversationCard] All conversation members for conversation ' + conversation.id + ':', members);
+
           // Try to find Ethereum addresses from member data
           let peerWalletAddress = null;
-          
+          const myInboxId = client?.inboxId;
+
           // For DM conversations, we should have exactly two members
           if (members.length === 2) {
             // Loop through all members to find Ethereum addresses
             for (const member of members) {
-              console.log('Member info:', member);
-              
+              // Skip our own account
+              if (member.inboxId === myInboxId) {
+                console.log('[ConversationCard] Skipping own account:', member.inboxId);
+                continue;
+              }
+
+              console.log('[ConversationCard] Processing peer member:', member);
+
+              // Set the peer's inboxId first as a fallback
+              if (!peerWalletAddress && member.inboxId) {
+                peerWalletAddress = extractEthereumAddress(member.inboxId);
+                console.log('[ConversationCard] Extracted address from peer inboxId:', peerWalletAddress);
+              }
+
               // Check if member has accountIdentifiers
               if (member.accountIdentifiers && member.accountIdentifiers.length > 0) {
                 for (const identifier of member.accountIdentifiers) {
-                  console.log('Account identifier:', identifier);
+                  console.log('[ConversationCard] Account identifier:', identifier);
                   if (identifier.identifierKind === 'Ethereum' && identifier.identifier) {
                     // Found an Ethereum address
                     const ethAddr = identifier.identifier.toLowerCase();
-                    console.log('Found Ethereum identifier:', ethAddr);
-                    
-                    // If this is the first Ethereum address we found, or we're sure it's the peer's,
-                    // save it as the peer address
-                    if (!peerWalletAddress) {
-                      peerWalletAddress = ethAddr;
-                    }
+                    console.log('[ConversationCard] Found Ethereum identifier:', ethAddr);
+
+                    // Use this as the peer wallet address
+                    peerWalletAddress = ethAddr;
+                    break;
                   }
                 }
               }
             }
           }
-          
+
           // If we didn't find a wallet address from members, try to extract from inbox ID
-          if (!peerWalletAddress) {
+          if (!peerWalletAddress && rawPeerInboxId) {
             peerWalletAddress = extractEthereumAddress(rawPeerInboxId);
-            console.log('Extracted wallet address from inbox ID:', peerWalletAddress);
+            console.log('[ConversationCard] Extracted wallet address from inbox ID:', peerWalletAddress);
           }
-          
+
           // If we found a wallet address, use it
           if (peerWalletAddress) {
-            console.log('Setting peer address:', peerWalletAddress);
+            console.log('[ConversationCard] Setting peer address for conversation ' + conversation.id + ':', peerWalletAddress);
             setPeerAddress(peerWalletAddress);
-            setName(shortenAddress(peerWalletAddress));
-          } 
+            // Use shortenAddress directly here to ensure unique display
+            const shortened = shortenAddress(peerWalletAddress);
+            console.log('[ConversationCard] Shortened address:', shortened);
+            setName(shortened);
+          }
           // Last resort - use the inbox ID
-          else {
-            console.log('Using inbox ID as fallback:', rawPeerInboxId);
-            setName(rawPeerInboxId);
+          else if (rawPeerInboxId) {
+            console.log('[ConversationCard] Using inbox ID as fallback:', rawPeerInboxId);
+            setName(rawPeerInboxId.substring(0, 6) + '...' + rawPeerInboxId.substring(rawPeerInboxId.length - 4));
             // If inbox ID looks like an Ethereum address, use it anyway
-            if (rawPeerInboxId?.startsWith('0x')) {
+            if (rawPeerInboxId.startsWith('0x')) {
               setPeerAddress(rawPeerInboxId);
             }
+          } else {
+            setName("Unknown");
           }
         } catch (error) {
-          console.error('Error processing peer identity:', error);
+          console.error('[ConversationCard] Error processing peer identity for conversation ' + conversation.id + ':', error);
           setName("Unknown");
         }
       }
     };
-    
+
     void processPeerIdentity();
-  }, [conversation, shortenAddress, extractEthereumAddress]);
+  }, [conversation, client?.inboxId, shortenAddress]);
 
   // Use resolved identity name with fallbacks
   const displayName = identity?.name || name || "Untitled";
-  
+
   // Generate blockie avatar for the address if no avatar exists
   const avatarUrl = identity?.avatar || (peerAddress ? makeBlockie(peerAddress) : null);
 
@@ -148,6 +165,9 @@ export const ConversationCard: React.FC<ConversationCardProps> = ({
     }
     return text;
   };
+
+  // Always show editable badge when we have a valid address for better visibility
+  const showEditableBadge = !!peerAddress;
 
   return (
     <Box px="sm">
@@ -187,6 +207,15 @@ export const ConversationCard: React.FC<ConversationCardProps> = ({
             <Text fw={700} truncate>
               {isLoading ? "Loading..." : displayName}
             </Text>
+
+            {/* Display the editable badge if we have an address */}
+            {showEditableBadge && peerAddress && (
+              <EditableAnonBadge
+                address={peerAddress}
+                size="xs"
+                conversationId={conversation.id}
+              />
+            )}
           </Flex>
           <Text size="sm">
             {memberCount} member{memberCount !== 1 ? "s" : ""}

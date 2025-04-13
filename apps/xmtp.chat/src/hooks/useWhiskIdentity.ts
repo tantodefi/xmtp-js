@@ -36,6 +36,9 @@ const identityCache = new Map<string, WhiskIdentity>();
  * @returns The resolved identity information, loading state, and error
  */
 export const useWhiskIdentity = (address: string | null) => {
+  // Add debug log
+  console.log('useWhiskIdentity called with address:', address);
+  
   const [identity, setIdentity] = useState<WhiskIdentity | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);

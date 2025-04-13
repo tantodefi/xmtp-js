@@ -1,0 +1,55 @@
+.editableBadge {
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  position: relative;
+  z-index: 1;
+}
+
+.editableBadge:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
+}
+
+/* Special animation for badges in the conversation header to make them more noticeable */
+.conversationBadge {
+  animation: pulseBadge 2s ease-in-out;
+}
+
+@keyframes pulseBadge {
+  0% {
+    box-shadow: 0 0 0 0 rgba(73, 80, 87, 0.4);
+  }
+
+  70% {
+    box-shadow: 0 0 0 6px rgba(73, 80, 87, 0);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(73, 80, 87, 0);
+  }
+}
+
+.badgeContent {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.editIcon:hover {
+  opacity: 0.8;
+}
+
+.editingContainer {
+  z-index: 100;
+  /* Ensure the editing interface appears above other content */
+  position: relative;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .editableBadge {
+    margin-left: 3px;
+    padding-left: 6px !important;
+    padding-right: 6px !important;
+  }
+}

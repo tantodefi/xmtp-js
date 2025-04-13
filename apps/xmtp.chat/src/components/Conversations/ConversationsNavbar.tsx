@@ -1,5 +1,5 @@
-import { Badge, Box, Group, Text } from "@mantine/core";
-import { useCallback, useEffect, useRef } from "react";
+import { Badge, Box, Group, Text, Flex, Button } from "@mantine/core";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ConversationsList } from "@/components/Conversations/ConversationList";
 import { ConversationsMenu } from "@/components/Conversations/ConversationsMenu";
 import { useConversations } from "@/hooks/useConversations";
@@ -9,6 +9,7 @@ export const ConversationsNavbar: React.FC = () => {
   const { list, loading, syncing, conversations, stream, syncAll } =
     useConversations();
   const stopStreamRef = useRef<(() => void) | null>(null);
+  const [isAddressBookBackedUp, setIsAddressBookBackedUp] = useState(false);
 
   const startStream = useCallback(async () => {
     stopStreamRef.current = await stream();
@@ -68,19 +69,44 @@ export const ConversationsNavbar: React.FC = () => {
         />
       }
       withScrollArea={false}>
-      {conversations.length === 0 ? (
-        <Box
-          display="flex"
-          style={{
-            flexGrow: 1,
-            alignItems: "center",
-            justifyContent: "center",
-          }}>
-          <Text>No conversations found</Text>
+      <Flex direction="column" style={{ height: "100%" }}>
+        {conversations.length === 0 ? (
+          <Box
+            display="flex"
+            style={{
+              flexGrow: 1,
+              alignItems: "center",
+              justifyContent: "center",
+            }}>
+            <Text>No conversations found</Text>
+          </Box>
+        ) : (
+          <Box style={{ flexGrow: 1 }}>
+            <ConversationsList conversations={conversations} />
+          </Box>
+        )}
+
+        {/* Address Book Buttons */}
+        <Box p="sm" style={{ borderTop: '1px solid var(--mantine-color-gray-3)' }}>
+          <Group justify="apart">
+            <Button
+              variant="light"
+              color="gray"
+              disabled={isAddressBookBackedUp}
+              style={{ flex: 1 }}
+            >
+              Backup Contacts
+            </Button>
+            <Button
+              variant="subtle"
+              color="blue"
+              style={{ flex: 1 }}
+            >
+              Sync Contacts
+            </Button>
+          </Group>
         </Box>
-      ) : (
-        <ConversationsList conversations={conversations} />
-      )}
+      </Flex>
     </ContentLayout>
   );
 };

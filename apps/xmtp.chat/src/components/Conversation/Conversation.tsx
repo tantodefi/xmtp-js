@@ -1,11 +1,11 @@
-import { Group, Text, Flex, Image, Loader } from "@mantine/core";
+import { Group, Text, Flex, Image, Loader, Tooltip, Stack, Avatar } from "@mantine/core";
 import {
   Group as XmtpGroup,
   Dm,
   type Client,
   type Conversation as XmtpConversation,
 } from "@xmtp/browser-sdk";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { Outlet, useOutletContext } from "react-router";
 import makeBlockie from 'ethereum-blockies-base64';
 import { ConversationMenu } from "@/components/Conversation/ConversationMenu";
@@ -14,6 +14,7 @@ import { useConversation } from "@/hooks/useConversation";
 import { useWhiskIdentity } from "@/hooks/useWhiskIdentity";
 import { ContentLayout } from "@/layouts/ContentLayout";
 import { Composer } from "./Composer";
+import { EditableAnonBadge } from "@/components/EditableAnonBadge";
 
 export type ConversationProps = {
   conversation: XmtpConversation;
@@ -104,36 +105,47 @@ export const Conversation: React.FC<ConversationProps> = ({ conversation }) => {
 
           // Get the peer's inbox ID
           const rawPeerInboxId = await conversation.peerInboxId();
-          console.log('Conversation: Raw peer inbox ID:', rawPeerInboxId);
+          console.log('[Conversation] Raw peer inbox ID:', rawPeerInboxId);
           setInboxId(rawPeerInboxId);
 
           // Get all conversation members
           const members = await conversation.members();
-          console.log('Conversation: All conversation members:', members);
+          console.log('[Conversation] All conversation members:', members);
 
           // Try to find Ethereum addresses from member data
           let peerWalletAddress = null;
+          const myInboxId = client?.inboxId;
 
           // For DM conversations, we should have exactly two members
           if (members.length === 2) {
             // Loop through all members to find Ethereum addresses
             for (const member of members) {
-              console.log('Conversation: Member info:', member);
+              // Skip our own account
+              if (member.inboxId === myInboxId) {
+                console.log('[Conversation] Skipping own account:', member.inboxId);
+                continue;
+              }
+
+              console.log('[Conversation] Processing peer member:', member);
+
+              // Set the peer's inboxId first as a fallback
+              if (!peerWalletAddress && member.inboxId) {
+                peerWalletAddress = extractEthereumAddress(member.inboxId);
+                console.log('[Conversation] Extracted address from peer inboxId:', peerWalletAddress);
+              }
 
               // Check if member has accountIdentifiers
               if (member.accountIdentifiers && member.accountIdentifiers.length > 0) {
                 for (const identifier of member.accountIdentifiers) {
-                  console.log('Conversation: Account identifier:', identifier);
+                  console.log('[Conversation] Account identifier:', identifier);
                   if (identifier.identifierKind === 'Ethereum' && identifier.identifier) {
                     // Found an Ethereum address
                     const ethAddr = identifier.identifier.toLowerCase();
-                    console.log('Conversation: Found Ethereum identifier:', ethAddr);
+                    console.log('[Conversation] Found Ethereum identifier:', ethAddr);
 
-                    // If this is the first Ethereum address we found, or we're sure it's the peer's,
-                    // save it as the peer address
-                    if (!peerWalletAddress) {
-                      peerWalletAddress = ethAddr;
-                    }
+                    // Use this as the peer wallet address
+                    peerWalletAddress = ethAddr;
+                    break;
                   }
                 }
               }
@@ -141,29 +153,33 @@ export const Conversation: React.FC<ConversationProps> = ({ conversation }) => {
           }
 
           // If we didn't find a wallet address from members, try to extract from inbox ID
-          if (!peerWalletAddress) {
+          if (!peerWalletAddress && rawPeerInboxId) {
             peerWalletAddress = extractEthereumAddress(rawPeerInboxId);
-            console.log('Conversation: Extracted wallet address from inbox ID:', peerWalletAddress);
+            console.log('[Conversation] Extracted wallet address from inbox ID:', peerWalletAddress);
           }
 
           // If we found a wallet address, use it
           if (peerWalletAddress) {
-            console.log('Conversation: Setting peer address:', peerWalletAddress);
+            console.log('[Conversation] Setting peer address:', peerWalletAddress);
             setPeerAddress(peerWalletAddress);
             // Set initial title to shortened address, will be updated when identity resolves
-            setTitle(shortenAddress(peerWalletAddress));
+            const shortened = shortenAddress(peerWalletAddress);
+            console.log('[Conversation] Shortened address:', shortened);
+            setTitle(shortened);
           }
           // Last resort - use the inbox ID
-          else {
-            console.log('Conversation: Using inbox ID as fallback:', rawPeerInboxId);
+          else if (rawPeerInboxId) {
+            console.log('[Conversation] Using inbox ID as fallback:', rawPeerInboxId);
             setTitle(rawPeerInboxId?.substring(0, 10) + '...');
             // If inbox ID looks like an Ethereum address, use it anyway
             if (rawPeerInboxId?.startsWith('0x')) {
               setPeerAddress(rawPeerInboxId);
             }
+          } else {
+            setTitle("Unknown recipient");
           }
         } catch (error) {
-          console.error('Conversation: Error processing peer identity:', error);
+          console.error('[Conversation] Error processing peer identity:', error);
           setTitle("Unknown recipient");
         } finally {
           setIsLoadingPeer(false);
@@ -172,7 +188,7 @@ export const Conversation: React.FC<ConversationProps> = ({ conversation }) => {
     };
 
     void processPeerIdentity();
-  }, [conversation, shortenAddress]);
+  }, [conversation, client?.inboxId, shortenAddress]);
 
   // Update title when identity resolves
   useEffect(() => {
@@ -184,11 +200,33 @@ export const Conversation: React.FC<ConversationProps> = ({ conversation }) => {
   // Generate avatar URL
   const avatarUrl = identity?.avatar || (peerAddress ? makeBlockie(peerAddress) : null);
 
+  // Always show editable badge when we have a valid address for better visibility
+  const showEditableBadge = !!peerAddress;
+
+  console.log("Conversation badge debug:", {
+    peerAddress,
+    title,
+    identityName: identity?.name,
+    shouldShowBadge: showEditableBadge,
+    isDm: conversation instanceof Dm
+  });
+
+  // Get the title for the conversation based on resolved identity or address
+  const titleMemo = useMemo(() => {
+    // Debug about title
+    console.log("Conversation title rendering", { identity, peerAddress });
+
+    if (isLoadingPeer) return "Loading...";
+    if (identity?.name) return identity.name;
+    if (peerAddress) return `${shortenAddress(peerAddress)}`;
+    return "Unknown";
+  }, [isLoadingPeer, identity, peerAddress, shortenAddress]);
+
   // Custom title component with avatar
   const titleComponent = (
     <>
       {conversation instanceof Dm ? (
-        <Flex align="center" gap="xs">
+        <Flex align="center" gap="xs" wrap="nowrap">
           {isLoadingPeer || isResolvingIdentity ? (
             <Loader size="xs" />
           ) : peerAddress ? (
@@ -197,17 +235,30 @@ export const Conversation: React.FC<ConversationProps> = ({ conversation }) => {
               width={24}
               height={24}
               radius="xl"
-              alt={`${title} avatar`}
+              alt={`${titleMemo} avatar`}
               onError={(e: any) => {
                 // Fallback to blockie if image fails to load
                 e.currentTarget.src = makeBlockie(peerAddress);
               }}
             />
           ) : null}
-          <Text>{title}</Text>
+          <Text style={{ maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {titleMemo}
+          </Text>
+
+          {/* Always show badge if we have a peer address */}
+          {peerAddress && (
+            <EditableAnonBadge
+              address={peerAddress}
+              size="sm"
+              editable={true}
+              conversationId={conversation.id}
+              isInConversationHeader={true}
+            />
+          )}
         </Flex>
       ) : (
-        <Text>{title}</Text>
+        <Text>{titleMemo}</Text>
       )}
     </>
   );

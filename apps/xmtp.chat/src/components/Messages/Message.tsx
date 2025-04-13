@@ -1,4 +1,4 @@
-import { Box, Flex, Paper, Stack, Text, Tooltip } from "@mantine/core";
+import { Paper, Text, Group, Tooltip, Flex, Box } from "@mantine/core";
 import type { Client, DecodedMessage } from "@xmtp/browser-sdk";
 import {
   ContentTypeTransactionReference,
@@ -8,7 +8,7 @@ import {
   ContentTypeWalletSendCalls,
   type WalletSendCallsParams,
 } from "@xmtp/content-type-wallet-send-calls";
-import { intlFormat } from "date-fns";
+import { intlFormat, formatRelative } from "date-fns";
 import { useNavigate, useOutletContext } from "react-router";
 import { nsToDate } from "@/helpers/date";
 import { useWhiskIdentity } from "@/hooks/useWhiskIdentity";
@@ -16,6 +16,7 @@ import classes from "./Message.module.css";
 import { MessageContent } from "./MessageContent";
 import { TransactionReferenceContent } from "./TransactionReferenceContent";
 import { WalletSendCallsContent } from "./WalletSendCallsContent";
+import { EditableAnonBadge } from "@/components/EditableAnonBadge";
 
 export type MessageProps = {
   message: DecodedMessage;
@@ -62,64 +63,47 @@ export const Message: React.FC<MessageProps> = ({ message }) => {
     ? "You"
     : `Address: ${senderAddress || message.senderInboxId}`;
 
+  // Always show editable badge for messages from others
+  const showEditableBadge = !isSender && !!senderAddress;
+
   return (
-    <Box px="md">
-      <Flex justify={align === "left" ? "flex-start" : "flex-end"}>
-        <Paper
-          p="md"
-          withBorder
-          shadow="md"
-          maw="80%"
-          tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              void navigate(
-                `/conversations/${message.conversationId}/message/${message.id}`,
-              );
-            }
-          }}
-          className={classes.root}
-          onClick={() =>
-            void navigate(
-              `/conversations/${message.conversationId}/message/${message.id}`,
-            )
-          }>
-          <Stack gap="xs" align={align === "left" ? "flex-start" : "flex-end"}>
-            <Flex
-              align="center"
-              gap="xs"
-              direction={align === "left" ? "row" : "row-reverse"}
-              justify={align === "left" ? "flex-start" : "flex-end"}>
-              <Tooltip label={tooltipText}>
-                <Text size="sm" fw={700} c="text.primary">
-                  {isLoading ? "Loading..." : displayName}
-                </Text>
-              </Tooltip>
-              <Text size="sm" c="dimmed">
-                {intlFormat(nsToDate(message.sentAtNs), {
-                  year: "numeric",
-                  month: "2-digit",
-                  day: "2-digit",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </Text>
-            </Flex>
-            {message.contentType.sameAs(ContentTypeTransactionReference) ? (
-              <TransactionReferenceContent
-                content={message.content as TransactionReference}
-              />
-            ) : message.contentType.sameAs(ContentTypeWalletSendCalls) ? (
-              <WalletSendCallsContent
-                content={message.content as WalletSendCallsParams}
-                conversationId={message.conversationId}
-              />
-            ) : (
-              <MessageContent content={message.content as string} />
-            )}
-          </Stack>
-        </Paper>
-      </Flex>
-    </Box>
+    <Group
+      align="flex-start"
+      justify={align === "right" ? "flex-end" : "flex-start"}
+      p="xs">
+      <Paper
+        p="xs"
+        withBorder
+        maw="450px"
+        pos="relative"
+        style={{
+          borderTopRightRadius: align === "right" ? 0 : undefined,
+          borderTopLeftRadius: align === "left" ? 0 : undefined,
+        }}>
+        <Flex gap="xs" align="center" wrap="nowrap" mb={6}>
+          <Tooltip label={tooltipText} withArrow position="top">
+            <Text size="xs" fw={500}>
+              {displayName}
+            </Text>
+          </Tooltip>
+
+          {/* Add the editable badge for messages not from self */}
+          {showEditableBadge && senderAddress && (
+            <EditableAnonBadge
+              address={senderAddress}
+              size="xs"
+              editable={false} // Only editable in conversation view
+              conversationId={message.conversationId}
+            />
+          )}
+        </Flex>
+
+        <MessageContent content={message.content} />
+
+        <Text size="xs" py="xs" c="dimmed" ta={align}>
+          {formatRelative(nsToDate(message.sentAtNs), new Date())}
+        </Text>
+      </Paper>
+    </Group>
   );
 };

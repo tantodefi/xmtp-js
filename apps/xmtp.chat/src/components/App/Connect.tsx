@@ -174,54 +174,52 @@ export const Connect = () => {
     [connectors, connect, ephemeralAccountEnabled],
   );
 
-  const handleUPConnect = useCallback(() => {
-    if (ephemeralAccountEnabled) {
-      setEphemeralAccountEnabled(false);
-    }
-
-    // Check if LUKSO extension is installed
-    if (!window.lukso) {
-      console.error("LUKSO UP browser extension not detected. Please install the extension and refresh the page.");
-      alert("LUKSO UP browser extension not detected. Please install the extension from https://chrome.google.com/webstore/detail/universal-profiles/abpickdkkbnbcoepogfhkhennhfhehfn");
-      return;
-    }
-
-    console.log("LUKSO UP browser extension detected, attempting to connect...");
-
-    // For UP Browser Extension, we first try direct connection
+  const handleUPConnect = async () => {
     try {
-      // Directly request accounts from LUKSO provider
-      window.lukso.request({ method: 'eth_requestAccounts' })
-        .then(() => {
-          console.log("LUKSO accounts requested successfully");
+      if (!luksoProviderRef.current) {
+        console.log("No LUKSO UP provider found, initializing...");
+        luksoProviderRef.current = new LuksoProvider();
 
-          // Then use the injected connector
-          const connector = connectors.find((c) => c.name === "Injected");
-          if (!connector) {
-            console.error("Injected connector not found");
-            return;
-          }
+        // Check if we're in a grid context
+        const isGridContext = window.location.search.includes('grid=true') ||
+          sessionStorage.getItem('isGridContext') === 'true' ||
+          localStorage.getItem('isGridContext') === 'true';
 
-          // Connect using the injected connector
-          connect({ connector });
-        })
-        .catch((error: any) => {
-          console.error("Error requesting LUKSO accounts:", error);
-        });
-    } catch (error) {
-      console.error("Failed to connect to LUKSO UP:", error);
-
-      // Fallback to standard injected connector
-      const connector = connectors.find((c) => c.name === "Injected");
-      if (!connector) {
-        console.error("Injected connector not found");
-        return;
+        // In grid context, be more aggressive about reusing existing session
+        if (isGridContext) {
+          console.log("Grid context detected - attempting to reconnect with stored credentials");
+        }
       }
 
-      // Connect using the injected connector
-      connect({ connector });
+      if (luksoProviderRef.current) {
+        console.log("Connecting to LUKSO UP provider...");
+
+        // Check if we have a stored key for reconnection
+        const storedUpAddress = localStorage.getItem('upAddress');
+        if (storedUpAddress) {
+          console.log(`Found stored UP address (${storedUpAddress.substring(0, 10)}...), will attempt to reconnect`);
+
+          // Find the corresponding ephemeral key
+          const luksoAddressKey = `lukso_ephemeral_key_${storedUpAddress.toLowerCase()}`;
+          const hasStoredKey = localStorage.getItem(luksoAddressKey);
+
+          if (hasStoredKey) {
+            console.log("Found stored ephemeral key for reconnection");
+          }
+        }
+
+        // Attempt to connect
+        await handleSetConnector({
+          connector: luksoConnector.current,
+          account: null,
+          provider: luksoProviderRef.current,
+        });
+      }
+    } catch (error) {
+      console.error("Error connecting to LUKSO UP provider:", error);
+      setNetworkError("Failed to connect to LUKSO UP provider. Please make sure you have a Universal Profile extension installed.");
     }
-  }, [connectors, connect, ephemeralAccountEnabled]);
+  };
 
   // maybe initialize an XMTP client on mount
   useEffect(() => {
@@ -322,7 +320,7 @@ export const Connect = () => {
               // Check if we already have a stored key for this LUKSO address
               const storedKey = localStorage.getItem(luksoAddressKey);
               if (storedKey) {
-                console.log("Found stored ephemeral key for LUKSO address");
+                console.log("Found stored ephemeral key for LUKSO address, ensuring persistence");
                 tempPrivateKey = storedKey as Hex;
               } else {
                 // Generate a new key and store it for future sessions
@@ -330,6 +328,9 @@ export const Connect = () => {
                 tempPrivateKey = generatePrivateKey();
                 localStorage.setItem(luksoAddressKey, tempPrivateKey);
               }
+
+              // Store the UP address for future reconnection
+              localStorage.setItem('upAddress', data.account.address);
 
               // Create a signer that will have persistent identity across sessions
               selectedSigner = createEphemeralSigner(tempPrivateKey);

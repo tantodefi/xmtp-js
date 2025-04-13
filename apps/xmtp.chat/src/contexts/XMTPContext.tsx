@@ -40,11 +40,11 @@ export type XMTPContextValue = {
 };
 
 export const XMTPContext = createContext<XMTPContextValue>({
-  setClient: () => {},
+  setClient: () => { },
   initialize: () => Promise.reject(new Error("XMTPProvider not available")),
   initializing: false,
   error: null,
-  disconnect: () => {},
+  disconnect: () => { },
 });
 
 export type XMTPProviderProps = React.PropsWithChildren & {
@@ -94,11 +94,11 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
 
         try {
           console.log("Creating XMTP client with signer type:", signer.type);
-          
+
           // Get identifier to track sessions per address
           const identifier = await signer.getIdentifier();
           const address = identifier?.identifier?.toLowerCase();
-          
+
           // Check if we already created a client for this address in this session
           if (address) {
             const lastClientCreationTime = localStorage.getItem(XMTP_CACHE_KEY_PREFIX + address);
@@ -106,28 +106,28 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
             if (lastClientCreationTime) {
               const timeSinceLastCreation = now - parseInt(lastClientCreationTime);
               console.log(`Time since last client creation for ${address}: ${timeSinceLastCreation}ms`);
-              
+
               // If we created a client for this address less than 1 hour ago, log a warning
               if (timeSinceLastCreation < 60 * 60 * 1000) {
                 console.warn(`Creating a new XMTP client for ${address} within 1 hour of the last creation. This may lead to multiple sessions.`);
               }
             }
-            
+
             // Update the last creation time for this address
             localStorage.setItem(XMTP_CACHE_KEY_PREFIX + address, now.toString());
           }
-          
+
           // Test the signer's getIdentifier method
           try {
             console.log("Signer identifier:", identifier);
-            
+
             if (!identifier || !identifier.identifier || !identifier.identifierKind) {
               console.error("WARNING: Signer getIdentifier returned invalid data:", identifier);
             }
           } catch (identifierError) {
             console.error("ERROR: Signer getIdentifier method failed:", identifierError);
           }
-          
+
           // Test the signer's signMessage method with a test message
           try {
             const testMessage = "XMTP Test Message";
@@ -141,7 +141,7 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
           } catch (signError) {
             console.error("ERROR: Signer signMessage method failed:", signError);
           }
-          
+
           // Log detailed signer structure
           console.log("Detailed signer info:", {
             type: signer.type,
@@ -151,7 +151,7 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
             getIdentifierIsAsync: signer.getIdentifier.constructor.name === 'AsyncFunction',
             signMessageIsAsync: signer.signMessage.constructor.name === 'AsyncFunction',
           });
-          
+
           // create a new XMTP client
           xmtpClient = await Client.create(signer, {
             env,
@@ -165,12 +165,12 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
               new WalletSendCallsCodec(),
             ],
           });
-          
+
           console.log("XMTP client created successfully");
           setClient(xmtpClient);
         } catch (e) {
           console.error("Error creating XMTP client:", e);
-          
+
           // Provide more detailed diagnostics for "Unknown signer" error
           if (e instanceof Error && e.message === "Unknown signer") {
             console.error("XMTP Unknown signer error detected. This typically means:");
@@ -179,7 +179,7 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
             console.error("3. The signer implementation is not returning values in the expected format");
             console.error("Please review the docs for a fix @https://docs.xmtp.org/");
           }
-          
+
           setClient(undefined);
           setError(e as Error);
           // re-throw error for upstream consumption
@@ -198,9 +198,20 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
 
   const disconnect = useCallback(() => {
     if (client) {
+      // Before disconnecting, save the client identifier to allow for easier reconnection
+      try {
+        if (client.inboxId) {
+          console.log("Saving client inbox ID for potential reconnection:", client.inboxId);
+          localStorage.setItem("xmtp_last_connected_inbox", client.inboxId);
+        }
+      } catch (error) {
+        console.warn("Error saving client inbox ID for reconnection:", error);
+      }
+
+      // Close the client connection without losing stored keys
       client.close();
       setClient(undefined);
-      console.log("XMTP client disconnected");
+      console.log("XMTP client disconnected while preserving session data");
     }
   }, [client, setClient]);
 
