@@ -244,7 +244,11 @@ export function LuksoProfile({ address = DEFAULT_ADDRESS, onXmtpAddressFound, cu
           if (profileData && Array.isArray(profileData) && profileData.length > 0) {
             const profileInfo = profileData[0]?.value;
 
-            if (profileInfo?.url && profileInfo.url.startsWith('ipfs://')) {
+            if (profileInfo &&
+              typeof profileInfo === 'object' &&
+              'url' in profileInfo &&
+              typeof profileInfo.url === 'string' &&
+              profileInfo.url.startsWith('ipfs://')) {
               const ipfsUrl = `https://api.universalprofile.cloud/ipfs/${profileInfo.url.slice(7)}`;
               const response = await fetch(ipfsUrl).catch(err => {
                 console.error('IPFS fetch error:', err);
