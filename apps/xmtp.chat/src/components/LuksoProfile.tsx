@@ -16,6 +16,8 @@ const DEFAULT_ADDRESS = '0x0000000000000000000000000000000000000000';
 const RPC_ENDPOINT = 'https://rpc.mainnet.lukso.network/';
 // Key hash for XMTP metadata in UP
 const XMTP_KEY = '0x5ef83ad9559033e6e941db7d7c495acdce616347d28e90c7ce47cbfcfcad3bc5';
+// New key for XMTP metadata to avoid conflicts with LSP3Profile
+const XMTP_CHAT_PROFILE_KEY = ethers.keccak256(ethers.toUtf8Bytes('XMTPChatProfile'));
 
 // Updated backup endpoints with more reliable LUKSO RPC endpoints
 const BACKUP_RPC_ENDPOINTS = [
@@ -105,9 +107,12 @@ export function LuksoProfile({ address = DEFAULT_ADDRESS, onXmtpAddressFound, cu
           provider
         );
 
-        // Try to read the XMTP metadata with timeout
+        // Try to read the XMTP metadata with timeout from both possible locations
+        let xmtpAddress = null;
+
+        // First try the original key
         const existingData = await withTimeout(universalProfile.getData(XMTP_KEY), RPC_TIMEOUT);
-        console.log('UP XMTP data:', existingData);
+        console.log('UP XMTP data (original key):', existingData);
 
         if (existingData && existingData !== '0x') {
           try {
@@ -117,49 +122,52 @@ export function LuksoProfile({ address = DEFAULT_ADDRESS, onXmtpAddressFound, cu
             // Check for direct address field first (current format)
             if (metadata.address) {
               console.log('Found XMTP address in UP metadata:', metadata.address);
-
-              // Update the profile data with the XMTP address
-              if (isMounted) {
-                setProfileData(prev => ({
-                  ...prev,
-                  xmtpAddress: metadata.address
-                }));
-
-                // Notify parent component
-                if (onXmtpAddressFound) {
-                  onXmtpAddressFound(metadata.address);
-                }
-              }
-
-              return metadata.address;
+              xmtpAddress = metadata.address;
             }
             // Fallback to the nested xmtp.address format (in case that format is used)
             else if (metadata.xmtp?.address) {
               console.log('Found XMTP address in UP metadata (nested format):', metadata.xmtp.address);
-
-              // Update the profile data with the XMTP address
-              if (isMounted) {
-                setProfileData(prev => ({
-                  ...prev,
-                  xmtpAddress: metadata.xmtp.address
-                }));
-
-                // Notify parent component
-                if (onXmtpAddressFound) {
-                  onXmtpAddressFound(metadata.xmtp.address);
-                }
-              }
-
-              return metadata.xmtp.address;
+              xmtpAddress = metadata.xmtp.address;
             }
           } catch (parseError) {
             console.error('Error parsing XMTP metadata:', parseError);
           }
-        } else {
-          console.log('No XMTP metadata found in UP');
         }
 
-        return null;
+        // If nothing found, try the new key
+        if (!xmtpAddress) {
+          try {
+            const newKeyData = await withTimeout(universalProfile.getData(XMTP_CHAT_PROFILE_KEY), RPC_TIMEOUT);
+            console.log('UP XMTP data (new key):', newKeyData);
+
+            if (newKeyData && newKeyData !== '0x') {
+              const decodedNewData = ethers.toUtf8String(newKeyData);
+              const newMetadata = JSON.parse(decodedNewData);
+
+              if (newMetadata.xmtp?.address) {
+                console.log('Found XMTP address in new key format:', newMetadata.xmtp.address);
+                xmtpAddress = newMetadata.xmtp.address;
+              }
+            }
+          } catch (error) {
+            console.log('No XMTP metadata found in new key');
+          }
+        }
+
+        // Update the profile data with the XMTP address if found
+        if (xmtpAddress && isMounted) {
+          setProfileData(prev => ({
+            ...prev,
+            xmtpAddress
+          }));
+
+          // Notify parent component
+          if (onXmtpAddressFound) {
+            onXmtpAddressFound(xmtpAddress);
+          }
+        }
+
+        return xmtpAddress;
       } catch (error) {
         console.error('Error checking XMTP address:', error);
 

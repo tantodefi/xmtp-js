@@ -15,6 +15,7 @@ import { useXMTP } from "@/contexts/XMTPContext";
 import { gql, request } from "graphql-request";
 import makeBlockie from "ethereum-blockies-base64";
 import { createClientUPProvider, type ClientUPProvider } from "@lukso/up-provider";
+import { Profile as WhiskProfile } from "@paperclip-labs/whisk-sdk/identity";
 
 const WHISK_API_URL = 'https://api.whisk.so/graphql';
 
@@ -178,64 +179,293 @@ export const CreateDmModal: React.FC = () => {
   const [whiskResolvedAddress, setWhiskResolvedAddress] = useState<string | null>(null);
   const [isResolvingWhiskENS, setIsResolvingWhiskENS] = useState(false);
 
-  // Custom effect to resolve ENS names using Whisk SDK
-  useEffect(() => {
-    if (!isEnsName || !memberId) {
-      setWhiskResolvedAddress(null);
-      return;
-    }
+  // Function to resolve ENS names using multiple methods
+  const resolveEnsName = async (name: string) => {
+    try {
+      console.log(`Attempting to resolve ENS name: ${name}`);
 
-    const resolveWithWhisk = async () => {
+      // Create an array of resolution methods to try in sequence
+      const resolutionMethods = [
+        // Method 1: Public ENS resolver API (most reliable)
+        async () => {
+          try {
+            const publicResolverResponse = await fetch(`https://api.ensideas.com/ens/resolve/${name}`);
+            if (publicResolverResponse.ok) {
+              const resolverData = await publicResolverResponse.json();
+              if (resolverData?.address) {
+                console.log(`Resolved ${name} to ${resolverData.address} via public ENS resolver`);
+                return resolverData.address;
+              }
+            }
+            return null;
+          } catch (error) {
+            console.error('Error with public ENS resolver:', error);
+            return null;
+          }
+        },
+
+        // Method 2: TheGraph ENS API (good alternative)
+        async () => {
+          try {
+            const thegraphResponse = await fetch('https://api.thegraph.com/subgraphs/name/ensdomains/ens', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                query: `{
+                  domains(where: { name: "${name}" }) {
+                    resolvedAddress {
+                      id
+                    }
+                  }
+                }`
+              })
+            });
+
+            const thegraphData = await thegraphResponse.json();
+            if (thegraphData?.data?.domains?.[0]?.resolvedAddress?.id) {
+              const address = thegraphData.data.domains[0].resolvedAddress.id;
+              console.log(`Resolved ${name} to ${address} via TheGraph ENS API`);
+              return address;
+            }
+            return null;
+          } catch (error) {
+            console.error('Error with TheGraph ENS API:', error);
+            return null;
+          }
+        },
+
+        // Method 3: Whisk API (if available)
+        async () => {
+          if (!import.meta.env.VITE_WHISK_API_KEY) return null;
+
+          try {
+            const response = await fetch(WHISK_API_URL, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${import.meta.env.VITE_WHISK_API_KEY}`
+              },
+              body: JSON.stringify({
+                query: `
+                  query {
+                    identity(name: "${name}") {
+                      address
+                      name
+                      avatar
+                    }
+                  }
+                `
+              })
+            });
+
+            const responseData = await response.json();
+            if (responseData?.data?.identity?.address) {
+              console.log(`Resolved ${name} to ${responseData.data.identity.address} via Whisk API`);
+              return responseData.data.identity.address;
+            }
+            return null;
+          } catch (error) {
+            console.error('Error with Whisk API ENS resolution:', error);
+            return null;
+          }
+        },
+
+        // Method 4: Ethereum Name Wrapper
+        async () => {
+          try {
+            const nameWrapperResponse = await fetch(`https://eth-mainnet.g.alchemy.com/v2/demo`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'eth_call',
+                params: [
+                  {
+                    to: '0x114D4603199df73e7D157787f8778E21fCd13066', // ENS Name Wrapper
+                    data: `0xbc1c58d1${name.split('.')[0].padEnd(64, '0')}${name.split('.')[1].padEnd(64, '0')}`
+                  },
+                  'latest'
+                ]
+              })
+            });
+
+            const nameWrapperData = await nameWrapperResponse.json();
+            if (nameWrapperData?.result && nameWrapperData.result !== '0x' && nameWrapperData.result.length >= 42) {
+              const address = `0x${nameWrapperData.result.slice(-40)}`;
+              if (address !== '0x0000000000000000000000000000000000000000') {
+                console.log(`Resolved ${name} to ${address} via ENS Name Wrapper`);
+                return address;
+              }
+            }
+            return null;
+          } catch (error) {
+            console.error('Error with ENS Name Wrapper resolution:', error);
+            return null;
+          }
+        },
+
+        // Method 5: Direct Public Resolver Call (most reliable but complex)
+        async () => {
+          try {
+            // This is a simplified approach - in production would use proper namehash
+            const ethRpcEndpoint = 'https://eth-mainnet.g.alchemy.com/v2/demo';
+
+            // First try the addr(bytes32) function (old style)
+            const oldStyleCall = {
+              jsonrpc: '2.0',
+              id: 1,
+              method: 'eth_call',
+              params: [
+                {
+                  to: '0x4976fb03C32e5B8cfe2b6cCB31c09Ba78EBaBa41', // ENS public resolver
+                  data: `0x3b3b57de${name.slice(0, -4).padEnd(64, '0')}` // Function selector for addr(bytes32)
+                },
+                'latest'
+              ]
+            };
+
+            const rpcResponse = await fetch(ethRpcEndpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(oldStyleCall)
+            });
+
+            const rpcData = await rpcResponse.json();
+            if (rpcData?.result && rpcData.result !== '0x' && rpcData.result !== '0x0000000000000000000000000000000000000000000000000000000000000000') {
+              const address = `0x${rpcData.result.slice(-40)}`;
+              console.log(`Resolved ${name} to ${address} via ENS Public Resolver (old style)`);
+              return address;
+            }
+
+            // If old style fails, try new style addr(bytes32,uint256) function
+            const newStyleCall = {
+              jsonrpc: '2.0',
+              id: 1,
+              method: 'eth_call',
+              params: [
+                {
+                  to: '0x4976fb03C32e5B8cfe2b6cCB31c09Ba78EBaBa41', // ENS public resolver
+                  data: `0xf1cb7e06${name.slice(0, -4).padEnd(64, '0')}0000000000000000000000000000000000000000000000000000000000000001` // addr(bytes32,uint256)
+                },
+                'latest'
+              ]
+            };
+
+            const newStyleResponse = await fetch(ethRpcEndpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(newStyleCall)
+            });
+
+            const newStyleData = await newStyleResponse.json();
+            if (newStyleData?.result && newStyleData.result !== '0x' && newStyleData.result !== '0x0000000000000000000000000000000000000000000000000000000000000000') {
+              const address = `0x${newStyleData.result.slice(-40)}`;
+              console.log(`Resolved ${name} to ${address} via ENS Public Resolver (new style)`);
+              return address;
+            }
+
+            return null;
+          } catch (error) {
+            console.error('Error with direct Ethereum RPC resolution:', error);
+            return null;
+          }
+        },
+
+        // Method 6: Cloudflare ENS Gateway (another public resolver)
+        async () => {
+          try {
+            const cloudflareResponse = await fetch(`https://cloudflare-eth.com`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'eth_call',
+                params: [
+                  {
+                    to: '0x4976fb03C32e5B8cfe2b6cCB31c09Ba78EBaBa41',
+                    data: `0x3b3b57de${name.slice(0, -4).padEnd(64, '0')}`
+                  },
+                  'latest'
+                ]
+              })
+            });
+
+            const cloudflareData = await cloudflareResponse.json();
+            if (cloudflareData?.result && cloudflareData.result !== '0x' && cloudflareData.result !== '0x0000000000000000000000000000000000000000000000000000000000000000') {
+              const address = `0x${cloudflareData.result.slice(-40)}`;
+              console.log(`Resolved ${name} to ${address} via Cloudflare ENS Gateway`);
+              return address;
+            }
+            return null;
+          } catch (error) {
+            console.error('Error with Cloudflare ENS Gateway:', error);
+            return null;
+          }
+        }
+      ];
+
+      // Try each resolution method in sequence
+      for (const method of resolutionMethods) {
+        try {
+          const result = await method();
+          if (result) return result;
+        } catch (error) {
+          console.error('Resolution method error:', error);
+        }
+      }
+
+      // If we get here, all methods failed
+      console.warn(`Failed to resolve ENS name ${name} with all available methods`);
+      return null;
+    } catch (error) {
+      console.error('Error in ENS resolution process:', error);
+      return null;
+    }
+  };
+
+  // Try to use our custom ENS resolution for .eth names
+  useEffect(() => {
+    // Skip if not an ENS name or if wagmi has already resolved it
+    if (!isEnsName || ensAddress) return;
+
+    const resolve = async () => {
       setIsResolvingWhiskENS(true);
       try {
-        console.log('Resolving ENS with enhanced resolver:', memberId);
-        const address = await resolveEnsName(memberId);
-        console.log('Enhanced resolved ENS address:', address);
-
-        if (address) {
-          // We got a successful resolution
-          setWhiskResolvedAddress(address);
-          setMemberIdError(null);
-
-          // Verify it's on XMTP 
-          if (utilsRef.current) {
-            try {
-              const inboxId = await utilsRef.current.getInboxIdForIdentifier(
-                {
-                  identifier: address.toLowerCase(),
-                  identifierKind: "Ethereum",
-                },
-                environment,
-              );
-              if (!inboxId) {
-                // Address is valid but not on XMTP
-                setMemberIdError("ENS resolved but address not registered on XMTP");
-              }
-            } catch (xmtpError) {
-              console.error('Error checking XMTP registration for ENS address:', xmtpError);
-            }
-          }
+        const resolvedAddress = await resolveEnsName(memberId);
+        if (resolvedAddress) {
+          setWhiskResolvedAddress(resolvedAddress);
         } else {
-          // Resolution failed
           setWhiskResolvedAddress(null);
-          setMemberIdError("Invalid ENS name or not registered");
         }
       } catch (error) {
-        console.error('Error resolving ENS with enhanced resolver:', error);
+        console.error("Error resolving ENS name with custom resolver:", error);
         setWhiskResolvedAddress(null);
-        setMemberIdError("Error resolving ENS name");
       } finally {
         setIsResolvingWhiskENS(false);
       }
     };
 
-    void resolveWithWhisk();
-  }, [isEnsName, memberId, environment]);
+    void resolve();
+  }, [memberId, isEnsName, ensAddress]);
 
-  // Prefer Whisk resolution over wagmi if available
+  // Prefer wagmi's ENS resolution but fall back to our custom resolver
   const effectiveEnsAddress = useMemo(() => {
-    return whiskResolvedAddress || ensAddress;
+    if (ensAddress) return ensAddress;
+    return whiskResolvedAddress;
   }, [whiskResolvedAddress, ensAddress]);
+
+  // Also use Whisk for ENS-resolved addresses (bidirectional lookup)
+  const { identity: ensResolvedIdentity, isLoading: isResolvingEnsIdentity } = useWhiskIdentity(
+    isEnsName && effectiveEnsAddress ? effectiveEnsAddress : null
+  );
 
   // Combined loading state for ENS resolution
   const isResolvingEffectiveENS = isResolvingEns || isResolvingWhiskENS;
@@ -475,269 +705,6 @@ export const CreateDmModal: React.FC = () => {
     }
   }, [gridOwnerXmtpAddress, contextAccounts]);
 
-  const resolveEnsName = async (name: string) => {
-    try {
-      console.log(`Attempting to resolve ENS name: ${name}`);
-
-      // Create an array of resolution methods to try in sequence
-      const resolutionMethods = [
-        // Method 1: Public ENS resolver API (most reliable)
-        async () => {
-          try {
-            const publicResolverResponse = await fetch(`https://api.ensideas.com/ens/resolve/${name}`);
-            if (publicResolverResponse.ok) {
-              const resolverData = await publicResolverResponse.json();
-              if (resolverData?.address) {
-                console.log(`Resolved ${name} to ${resolverData.address} via public ENS resolver`);
-                return resolverData.address;
-              }
-            }
-            return null;
-          } catch (error) {
-            console.error('Error with public ENS resolver:', error);
-            return null;
-          }
-        },
-
-        // Method 2: TheGraph ENS API (good alternative)
-        async () => {
-          try {
-            const thegraphResponse = await fetch('https://api.thegraph.com/subgraphs/name/ensdomains/ens', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                query: `{
-                  domains(where: { name: "${name}" }) {
-                    resolvedAddress {
-                      id
-                    }
-                  }
-                }`
-              })
-            });
-
-            const thegraphData = await thegraphResponse.json();
-            if (thegraphData?.data?.domains?.[0]?.resolvedAddress?.id) {
-              const address = thegraphData.data.domains[0].resolvedAddress.id;
-              console.log(`Resolved ${name} to ${address} via TheGraph ENS API`);
-              return address;
-            }
-            return null;
-          } catch (error) {
-            console.error('Error with TheGraph ENS API:', error);
-            return null;
-          }
-        },
-
-        // Method 3: Whisk API (if available)
-        async () => {
-          if (!import.meta.env.VITE_WHISK_API_KEY) return null;
-
-          try {
-            const response = await fetch(WHISK_API_URL, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${import.meta.env.VITE_WHISK_API_KEY}`
-              },
-              body: JSON.stringify({
-                query: `
-                  query {
-                    identity(name: "${name}") {
-                      address
-                      name
-                      avatar
-                    }
-                  }
-                `
-              })
-            });
-
-            const responseData = await response.json();
-            if (responseData?.data?.identity?.address) {
-              console.log(`Resolved ${name} to ${responseData.data.identity.address} via Whisk API`);
-              return responseData.data.identity.address;
-            }
-            return null;
-          } catch (error) {
-            console.error('Error with Whisk API ENS resolution:', error);
-            return null;
-          }
-        },
-
-        // Method 4: Ethereum Name Wrapper
-        async () => {
-          try {
-            const nameWrapperResponse = await fetch(`https://eth-mainnet.g.alchemy.com/v2/demo`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                jsonrpc: '2.0',
-                id: 1,
-                method: 'eth_call',
-                params: [
-                  {
-                    to: '0x114D4603199df73e7D157787f8778E21fCd13066', // ENS Name Wrapper
-                    data: `0xbc1c58d1${name.split('.')[0].padEnd(64, '0')}${name.split('.')[1].padEnd(64, '0')}`
-                  },
-                  'latest'
-                ]
-              })
-            });
-
-            const nameWrapperData = await nameWrapperResponse.json();
-            if (nameWrapperData?.result && nameWrapperData.result !== '0x' && nameWrapperData.result.length >= 42) {
-              const address = `0x${nameWrapperData.result.slice(-40)}`;
-              if (address !== '0x0000000000000000000000000000000000000000') {
-                console.log(`Resolved ${name} to ${address} via ENS Name Wrapper`);
-                return address;
-              }
-            }
-            return null;
-          } catch (error) {
-            console.error('Error with ENS Name Wrapper resolution:', error);
-            return null;
-          }
-        },
-
-        // Method 5: Direct Public Resolver Call (most reliable but complex)
-        async () => {
-          try {
-            // This is a simplified approach - in production would use proper namehash
-            const ethRpcEndpoint = 'https://eth-mainnet.g.alchemy.com/v2/demo';
-
-            // First try the addr(bytes32) function (old style)
-            const oldStyleCall = {
-              jsonrpc: '2.0',
-              id: 1,
-              method: 'eth_call',
-              params: [
-                {
-                  to: '0x4976fb03C32e5B8cfe2b6cCB31c09Ba78EBaBa41', // ENS public resolver
-                  data: `0x3b3b57de${name.slice(0, -4).padEnd(64, '0')}` // Function selector for addr(bytes32)
-                },
-                'latest'
-              ]
-            };
-
-            const rpcResponse = await fetch(ethRpcEndpoint, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(oldStyleCall)
-            });
-
-            const rpcData = await rpcResponse.json();
-            if (rpcData?.result && rpcData.result !== '0x' && rpcData.result !== '0x0000000000000000000000000000000000000000000000000000000000000000') {
-              const address = `0x${rpcData.result.slice(-40)}`;
-              console.log(`Resolved ${name} to ${address} via ENS Public Resolver (old style)`);
-              return address;
-            }
-
-            // If old style fails, try new style addr(bytes32,uint256) function
-            const newStyleCall = {
-              jsonrpc: '2.0',
-              id: 1,
-              method: 'eth_call',
-              params: [
-                {
-                  to: '0x4976fb03C32e5B8cfe2b6cCB31c09Ba78EBaBa41', // ENS public resolver
-                  data: `0xf1cb7e06${name.slice(0, -4).padEnd(64, '0')}0000000000000000000000000000000000000000000000000000000000000001` // addr(bytes32,uint256)
-                },
-                'latest'
-              ]
-            };
-
-            const newStyleResponse = await fetch(ethRpcEndpoint, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(newStyleCall)
-            });
-
-            const newStyleData = await newStyleResponse.json();
-            if (newStyleData?.result && newStyleData.result !== '0x' && newStyleData.result !== '0x0000000000000000000000000000000000000000000000000000000000000000') {
-              const address = `0x${newStyleData.result.slice(-40)}`;
-              console.log(`Resolved ${name} to ${address} via ENS Public Resolver (new style)`);
-              return address;
-            }
-
-            return null;
-          } catch (error) {
-            console.error('Error with direct Ethereum RPC resolution:', error);
-            return null;
-          }
-        },
-
-        // Method 6: Cloudflare ENS Gateway (another public resolver)
-        async () => {
-          try {
-            const cloudflareResponse = await fetch(`https://cloudflare-eth.com`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                jsonrpc: '2.0',
-                id: 1,
-                method: 'eth_call',
-                params: [
-                  {
-                    to: '0x4976fb03C32e5B8cfe2b6cCB31c09Ba78EBaBa41',
-                    data: `0x3b3b57de${name.slice(0, -4).padEnd(64, '0')}`
-                  },
-                  'latest'
-                ]
-              })
-            });
-
-            const cloudflareData = await cloudflareResponse.json();
-            if (cloudflareData?.result && cloudflareData.result !== '0x' && cloudflareData.result !== '0x0000000000000000000000000000000000000000000000000000000000000000') {
-              const address = `0x${cloudflareData.result.slice(-40)}`;
-              console.log(`Resolved ${name} to ${address} via Cloudflare ENS Gateway`);
-              return address;
-            }
-            return null;
-          } catch (error) {
-            console.error('Error with Cloudflare ENS Gateway:', error);
-            return null;
-          }
-        }
-      ];
-
-      // Try each resolution method in sequence with retries for network issues
-      for (const method of resolutionMethods) {
-        // Try each method up to 2 times (initial + 1 retry)
-        for (let attempt = 0; attempt < 2; attempt++) {
-          try {
-            const result = await method();
-            if (result) return result;
-
-            // If method failed but didn't throw, continue to next method/attempt
-            if (attempt === 0) {
-              console.log('Resolution attempt failed, retrying...');
-              await new Promise(r => setTimeout(r, 300)); // Small delay before retry
-            }
-          } catch (methodError) {
-            console.error(`Resolution method error on attempt ${attempt + 1}:`, methodError);
-            if (attempt === 0) {
-              await new Promise(r => setTimeout(r, 300)); // Small delay before retry
-            }
-          }
-        }
-      }
-
-      // If we get here, all methods failed
-      console.warn(`Failed to resolve ENS name ${name} with all available methods`);
-      return null;
-    } catch (error) {
-      console.error('Error in ENS resolution process:', error);
-      return null;
-    }
-  };
-
   useEffect(() => {
     const utils = new Utils();
     utilsRef.current = utils;
@@ -974,21 +941,14 @@ export const CreateDmModal: React.FC = () => {
           {isValidAddress && !isSearching && !isEnsName && (
             <Box mt={5}>
               {whiskIdentity && whiskIdentity.name && whiskIdentity.name !== whiskIdentity.address ? (
-                <Text size="sm" c="blue.6" fw={500}>
-                  <span role="img" aria-label="Identity">🔍</span> Identity: <b>{whiskIdentity.name}</b>
-                  {whiskIdentity.avatar && (
-                    <Image
-                      src={whiskIdentity.avatar}
-                      alt={whiskIdentity.name}
-                      width={24}
-                      height={24}
-                      radius="xl"
-                      display="inline-block"
-                      ml={5}
-                      style={{ verticalAlign: 'middle' }}
-                    />
+                <>
+                  <Text size="sm" c="blue.6" fw={500} mb={5}>
+                    <span role="img" aria-label="Identity">🔍</span> Identity found:
+                  </Text>
+                  {isValidEthereumAddress(memberId) && (
+                    <WhiskProfile address={memberId as `0x${string}`} />
                   )}
-                </Text>
+                </>
               ) : isResolvingWhiskIdentity ? (
                 <Text size="sm" c="gray.6">
                   <Loader size="xs" mr={5} display="inline-block" /> Looking up identity...
@@ -997,8 +957,36 @@ export const CreateDmModal: React.FC = () => {
             </Box>
           )}
 
-          {/* Display ENS resolution status */}
-          {displayEnsResolutionStatus}
+          {/* Display ENS resolution status with Whisk Profile */}
+          {isEnsName && !isResolvingEffectiveENS && effectiveEnsAddress && (
+            <Box mt={5}>
+              <Text size="sm" c="blue.6" fw={500} mb={5}>
+                <span role="img" aria-label="ENS">✅</span> ENS resolved:
+              </Text>
+              {isValidEthereumAddress(effectiveEnsAddress) && (
+                <WhiskProfile address={effectiveEnsAddress as `0x${string}`} />
+              )}
+              {memberIdError ? (
+                <Text size="xs" c="orange.6" mt={1}>
+                  ⚠️ {memberIdError}
+                </Text>
+              ) : (
+                <Text size="xs" c="green.6" mt={1}>
+                  ✓ Address is registered on XMTP
+                </Text>
+              )}
+            </Box>
+          )}
+          {isEnsName && isResolvingEffectiveENS && (
+            <Text size="sm" c="gray.6" mt={5}>
+              <Loader size="xs" mr={5} display="inline-block" /> Resolving ENS name...
+            </Text>
+          )}
+          {isEnsName && !isResolvingEffectiveENS && !effectiveEnsAddress && (
+            <Text size="sm" c="red.6" mt={5}>
+              ❌ Could not resolve ENS name
+            </Text>
+          )}
 
           {/* Display search results */}
           {showSearchResults && searchResults.length > 0 && (

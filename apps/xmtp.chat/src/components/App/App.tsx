@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router";
 import { WhiskSdkProvider } from '@paperclip-labs/whisk-sdk';
+import { IdentityResolver } from '@paperclip-labs/whisk-sdk/identity';
 import { AppLayout } from "@/components/App/AppLayout";
 import { Disconnect } from "@/components/App/Disconnect";
 import { ErrorModal } from "@/components/App/ErrorModal";
@@ -24,7 +25,20 @@ export const App: React.FC = () => {
   return (
     <WhiskSdkProvider
       apiKey={import.meta.env.VITE_WHISK_API_KEY}
-      config={{}}
+      config={{
+        identity: {
+          // Use all available resolvers in order of preference
+          resolverOrder: [
+            IdentityResolver.Ens,
+            IdentityResolver.Farcaster,
+            IdentityResolver.Base,
+            IdentityResolver.Nns,
+            IdentityResolver.Uni,
+            IdentityResolver.Lens,
+            IdentityResolver.World
+          ]
+        }
+      }}
     >
       <ErrorModal />
       <Routes>

@@ -1,10 +1,11 @@
-import { Badge, Box, Group, Text, Flex, Button } from "@mantine/core";
+import { Badge, Box, Group, Text, Flex, Button, Menu, ActionIcon } from "@mantine/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ConversationsList } from "@/components/Conversations/ConversationList";
 import { ConversationsMenu } from "@/components/Conversations/ConversationsMenu";
 import { useConversations } from "@/hooks/useConversations";
 import { useAddressBook } from "@/hooks/useAddressBook";
 import { ContentLayout } from "@/layouts/ContentLayout";
+import { IconBug } from '@tabler/icons-react';
 
 export const ConversationsNavbar: React.FC = () => {
   const { list, loading, syncing, conversations, stream, syncAll } =
@@ -17,6 +18,13 @@ export const ConversationsNavbar: React.FC = () => {
     handleBackup: backupAddressBook
   } = useAddressBook();
   const stopStreamRef = useRef<(() => void) | null>(null);
+  const [showInvalidConversations, setShowInvalidConversations] = useState(false);
+
+  // Count invalid conversations
+  const invalidConversationCount = conversations.filter(
+    // @ts-ignore - Custom property
+    (conv) => conv.isInvalid
+  ).length;
 
   const startStream = useCallback(async () => {
     stopStreamRef.current = await stream();
@@ -55,6 +63,31 @@ export const ConversationsNavbar: React.FC = () => {
     };
   }, [stopStream]);
 
+  // Helper to identify and log invalid conversations
+  const handleDebugInvalidConversations = () => {
+    // Toggle showing invalid conversations
+    setShowInvalidConversations(!showInvalidConversations);
+
+    // Log the invalid conversations for debugging
+    const invalidOnes = conversations.filter(
+      // @ts-ignore - Custom property
+      (conv) => conv.isInvalid
+    );
+
+    console.log(`Found ${invalidOnes.length} invalid conversations:`, invalidOnes);
+  };
+
+  // Filter conversations
+  const displayedConversations = showInvalidConversations
+    ? conversations.filter(
+      // @ts-ignore - Custom property
+      (conv) => conv.isInvalid
+    )
+    : conversations.filter(
+      // @ts-ignore - Custom property
+      (conv) => !conv.isInvalid
+    );
+
   return (
     <ContentLayout
       title={
@@ -63,8 +96,17 @@ export const ConversationsNavbar: React.FC = () => {
             Conversations
           </Text>
           <Badge color="gray" size="lg">
-            {conversations.length}
+            {showInvalidConversations ? invalidConversationCount : conversations.length - invalidConversationCount}
           </Badge>
+          {invalidConversationCount > 0 && (
+            <ActionIcon
+              variant="subtle"
+              color={showInvalidConversations ? "blue" : "gray"}
+              onClick={handleDebugInvalidConversations}
+              title={showInvalidConversations ? "Show valid conversations" : "Show invalid conversations"}>
+              <IconBug size={18} />
+            </ActionIcon>
+          )}
         </Group>
       }
       loading={loading}
@@ -77,7 +119,7 @@ export const ConversationsNavbar: React.FC = () => {
       }
       withScrollArea={false}>
       <Flex direction="column" style={{ height: "100%" }}>
-        {conversations.length === 0 ? (
+        {displayedConversations.length === 0 ? (
           <Box
             display="flex"
             style={{
@@ -85,11 +127,15 @@ export const ConversationsNavbar: React.FC = () => {
               alignItems: "center",
               justifyContent: "center",
             }}>
-            <Text>No conversations found</Text>
+            <Text>
+              {showInvalidConversations
+                ? "No invalid conversations found"
+                : "No conversations found"}
+            </Text>
           </Box>
         ) : (
           <Box style={{ flexGrow: 1 }}>
-            <ConversationsList conversations={conversations} />
+            <ConversationsList conversations={displayedConversations} />
           </Box>
         )}
 

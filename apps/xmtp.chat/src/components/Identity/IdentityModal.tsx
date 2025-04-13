@@ -217,10 +217,11 @@ export const IdentityModal: React.FC = () => {
       const xmtpTag = `xmtp:${accountIdentifier}`;
       console.log(`Updating metadata with tag: ${xmtpTag}`);
 
-      // Using a custom key for XMTP metadata to avoid conflicts
-      const xmtpKeyName = 'XMTPAddress';
-      // Key hash is generated from the name using keccak256
-      const xmtpKey = '0x5ef83ad9559033e6e941db7d7c495acdce616347d28e90c7ce47cbfcfcad3bc5';
+      // Use a different key for XMTP metadata to avoid conflicts with LSP3Profile
+      const xmtpKeyName = 'XMTPChatProfile';
+      // Generate a key hash - different from the LSP3Profile key
+      const xmtpKey = '0x' + ethers.keccak256(ethers.toUtf8Bytes(xmtpKeyName)).substring(2);
+      console.log('Using XMTP key:', xmtpKey);
 
       try {
         // First check if we have an active provider
@@ -258,8 +259,8 @@ export const IdentityModal: React.FC = () => {
           signer
         );
 
-        // First read existing metadata
-        let existingMetadata = {};
+        // First read existing metadata to avoid overwriting it
+        let existingMetadata: any = {};
         try {
           const existingData = await universalProfile.getData(xmtpKey);
           if (existingData && existingData !== '0x') {
@@ -271,14 +272,28 @@ export const IdentityModal: React.FC = () => {
           console.log('No existing metadata found, starting fresh');
         }
 
-        // Create the metadata object, preserving existing data
-        const xmtpMetadata = {
-          ...existingMetadata,
-          xmtp: {
-            address: accountIdentifier,
-            timestamp: Date.now(),
-            version: '1.0'
+        // Also read the LSP3Profile data to ensure we're not interfering with it
+        try {
+          const lsp3Key = '0x5ef83ad9559033e6e941db7d7c495acdce616347d28e90c7ce47cbfcfcad3bc5';
+          const lsp3Data = await universalProfile.getData(lsp3Key);
+          if (lsp3Data && lsp3Data !== '0x') {
+            console.log('LSP3Profile data exists - ensuring we don\'t overwrite it');
           }
+        } catch (error) {
+          console.log('Error checking LSP3Profile data:', error);
+        }
+
+        // We need to preserve the LSP3 structure if it exists
+        // Instead of replacing, we'll add our xmtp data to the existing structure
+        const xmtpMetadata = {
+          ...existingMetadata
+        };
+
+        // Add the XMTP address information without disturbing other fields
+        xmtpMetadata.xmtp = {
+          address: accountIdentifier,
+          timestamp: Date.now(),
+          version: '1.0'
         };
 
         // Encode the metadata as bytes

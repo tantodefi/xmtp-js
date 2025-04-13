@@ -72,6 +72,19 @@ export const ConversationCard: React.FC<ConversationCardProps> = ({
           const members = await conversation.members();
           console.log('[ConversationCard] All conversation members for conversation ' + conversation.id + ':', members);
 
+          // Enforce minimum member count for DMs - should be at least 2
+          if (members.length < 2) {
+            console.warn('[ConversationCard] Invalid DM with fewer than 2 members:', {
+              conversationId: conversation.id,
+              memberCount: members.length
+            });
+            // Set a flag that can be used for filtering in the parent component
+            // @ts-ignore - Adding a custom property for filtering
+            conversation.isInvalid = true;
+            setName("Invalid Conversation");
+            return;
+          }
+
           // Try to find Ethereum addresses from member data
           let peerWalletAddress = null;
           const myInboxId = client?.inboxId;
@@ -130,6 +143,16 @@ export const ConversationCard: React.FC<ConversationCardProps> = ({
           // Last resort - use the inbox ID
           else if (rawPeerInboxId) {
             console.log('[ConversationCard] Using inbox ID as fallback:', rawPeerInboxId);
+
+            // Check if the inbox ID is malformed or suspicious
+            if (rawPeerInboxId.startsWith(':') || rawPeerInboxId.length < 10) {
+              console.warn('[ConversationCard] Suspicious inbox ID format:', rawPeerInboxId);
+              // @ts-ignore - Adding a custom property for filtering
+              conversation.isInvalid = true;
+              setName("Invalid Conversation");
+              return;
+            }
+
             setName(rawPeerInboxId.substring(0, 6) + '...' + rawPeerInboxId.substring(rawPeerInboxId.length - 4));
             // If inbox ID looks like an Ethereum address, use it anyway
             if (rawPeerInboxId.startsWith('0x')) {

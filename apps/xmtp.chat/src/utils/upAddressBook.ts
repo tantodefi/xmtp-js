@@ -5,6 +5,8 @@ import { UniversalProfileArtifact } from '@/artifacts/UniversalProfile';
 const ADDRESS_BOOK_KEY = '0x6bc3f244db122dc9d843809e91f83deb22b3e9ef5b3f755cf58c6deeca71f02b'; // keccak256('address-book')
 const FOLLOWERS_KEY = '0x6f357c6a820361fe0d713a0d7d14d3f7a9fc2dda7be8f740b8afc02f7c960cbc'; // keccak256('followers')
 const XMTP_KEY = '0x5ef83ad9559033e6e941db7d7c495acdce616347d28e90c7ce47cbfcfcad3bc5';
+// New key for XMTP chat profile
+const XMTP_CHAT_PROFILE_KEY = ethers.keccak256(ethers.toUtf8Bytes('XMTPChatProfile'));
 
 // LUKSO RPC endpoints
 const RPC_ENDPOINTS = [
