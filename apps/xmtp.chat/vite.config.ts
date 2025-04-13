@@ -7,5 +7,12 @@ export default defineConfig({
   plugins: [tsconfigPaths(), react()],
   optimizeDeps: {
     exclude: ["@xmtp/wasm-bindings"],
+    include: ["@tabler/icons-react"]
   },
+  build: {
+    rollupOptions: {
+      // Make sure to bundle @tabler/icons-react
+      external: ['@xmtp/wasm-bindings']
+    }
+  }
 });
