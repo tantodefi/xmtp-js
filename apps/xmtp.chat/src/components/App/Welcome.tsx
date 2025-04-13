@@ -3,7 +3,8 @@ import { Connect } from "@/components/App/Connect";
 import { useEffect, useState, useCallback } from "react";
 import { LuksoProfile } from "@/components/LuksoProfile";
 import { useNavigate } from "react-router";
-import { useConnect, useConnectors } from "wagmi";
+import { useConnect, useConnectors, useDisconnect } from "wagmi";
+import { useXMTP } from "@/contexts/XMTPContext";
 
 // Helper function to safely get all context accounts from LUKSO UP Provider
 const safeGetContextAccounts = async (): Promise<string[]> => {
@@ -114,7 +115,74 @@ export const Welcome = () => {
   const [gridOwnerXmtpAddress, setGridOwnerXmtpAddress] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const { connect } = useConnect();
+  const { disconnect } = useDisconnect();
+  const { disconnect: disconnectXMTP, client } = useXMTP();
   const connectors = useConnectors();
+
+  // Helper function for comprehensive cleanup when disconnecting
+  const performFullDisconnect = useCallback(async () => {
+    console.log("Welcome: Performing full disconnect");
+
+    // Disconnect from XMTP
+    try {
+      if (disconnectXMTP) {
+        console.log("Welcome: Disconnecting from XMTP");
+        await disconnectXMTP();
+      }
+    } catch (xmtpError) {
+      console.error("Welcome: Error disconnecting from XMTP:", xmtpError);
+    }
+
+    // Disconnect from wallet
+    try {
+      if (disconnect) {
+        console.log("Welcome: Disconnecting from wallet");
+        await disconnect();
+      }
+    } catch (walletError) {
+      console.error("Welcome: Error disconnecting from wallet:", walletError);
+    }
+
+    // Also try to disconnect from UP Provider if it exists
+    try {
+      if (window.lukso && typeof window.lukso.request === 'function') {
+        try {
+          const luksoProvider = window.lukso as any;
+          if (typeof luksoProvider.disconnect === 'function') {
+            luksoProvider.disconnect();
+            console.log("Welcome: Successfully disconnected from UP Provider");
+          } else {
+            console.log("Welcome: UP Provider does not support disconnect method");
+          }
+        } catch (e) {
+          console.error("Welcome: Error calling disconnect on UP Provider:", e);
+        }
+      }
+    } catch (providerError) {
+      console.error("Welcome: Error with UP provider disconnect:", providerError);
+    }
+
+    // Clear all relevant storage
+    try {
+      sessionStorage.clear();
+      localStorage.removeItem("LUKSO_NONCE");
+      localStorage.removeItem("LUKSO_LAST_UP_ADDRESS");
+      localStorage.removeItem("xmtp.context.autoConnect");
+      sessionStorage.removeItem("xmtp.auth.status");
+
+      // Clear any other potential lukso keys
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('lukso_ephemeral_key_')) {
+          localStorage.removeItem(key);
+        }
+      });
+    } catch (storageError) {
+      console.error("Welcome: Error clearing storage:", storageError);
+    }
+
+    // Force navigation to welcome page
+    navigate("/welcome");
+  }, [navigate, disconnectXMTP, disconnect]);
 
   // Function to handle grid owner XMTP address found
   const handleGridOwnerXmtpAddressFound = (address: string) => {
@@ -122,18 +190,43 @@ export const Welcome = () => {
     setGridOwnerXmtpAddress(address);
   };
 
-  // Handle UP Provider account changes
-  const handleAccountsChanged = useCallback((accounts: string[]) => {
-    console.log("Welcome: UP Provider accounts changed:", accounts);
+  // Now update handleAccountsChanged to use this function
+  const handleAccountsChanged = useCallback(
+    async (accounts: string[]) => {
+      console.log("Welcome: Accounts changed", accounts);
+      try {
+        // No accounts means disconnected
+        if (!accounts || accounts.length === 0) {
+          console.log("Welcome: No accounts detected, user disconnected");
+          await performFullDisconnect();
+          return;
+        }
 
-    // If accounts is empty array, redirect to welcome
-    if (Array.isArray(accounts) && accounts.length === 0) {
-      console.log("Welcome: Accounts empty, redirecting to /welcome");
-      navigate('/welcome');
-    } else {
-      setContextAccounts(accounts);
+        // Handle account changes
+        setContextAccounts(accounts);
+      } catch (error) {
+        console.error("Welcome: Error handling account changes:", error);
+      }
+    },
+    [setContextAccounts, performFullDisconnect]
+  );
+
+  // Add a specific effect to handle disconnection state
+  useEffect(() => {
+    // If we're on conversations page but have no client or accounts, force redirect
+    if (
+      window.location.pathname.includes('/conversations') &&
+      (!client || contextAccounts.length === 0)
+    ) {
+      console.log("Welcome: On conversations page without client or accounts, forcing navigation to /welcome");
+      // Clear storage first
+      sessionStorage.removeItem('hasNavigatedToConversations');
+      sessionStorage.removeItem('pendingNavigation');
+
+      // Force navigation to welcome page
+      window.location.href = '/welcome';
     }
-  }, [navigate]);
+  }, [client, contextAccounts]);
 
   // Handle Universal Profile connection button click
   const handleUPConnect = useCallback(() => {
@@ -210,11 +303,39 @@ export const Welcome = () => {
 
     checkForContextAccounts();
 
-    // Add listeners for account changes
-    if (window.lukso && typeof window.lukso.on === 'function') {
-      console.log("Welcome: Adding UP Provider account change listener");
-      window.lukso.on('accountsChanged', handleAccountsChanged);
-      window.lukso.on('contextAccountsChanged', handleAccountsChanged);
+    // Add listeners for account changes - with error handling
+    try {
+      // First try with window.lukso (UP browser extension)
+      if (window.lukso && typeof window.lukso.on === 'function') {
+        console.log("Welcome: Adding UP Provider account change listener to window.lukso");
+        window.lukso.on('accountsChanged', handleAccountsChanged);
+        window.lukso.on('contextAccountsChanged', handleAccountsChanged);
+
+        // Also listen for disconnect events
+        if (typeof window.lukso.on === 'function') {
+          window.lukso.on('disconnect', () => {
+            console.log("Welcome: Disconnect event from UP Provider");
+            handleAccountsChanged([]);
+          });
+        }
+      }
+
+      // Also try with ethereum provider as backup
+      if (window.ethereum &&
+        (window.ethereum.isLukso || window.ethereum.isUniversalProfile) &&
+        typeof window.ethereum.on === 'function') {
+        console.log("Welcome: Adding UP Provider account change listener to window.ethereum");
+        window.ethereum.on('accountsChanged', handleAccountsChanged);
+        window.ethereum.on('contextAccountsChanged', handleAccountsChanged);
+
+        // Also listen for disconnect events
+        window.ethereum.on('disconnect', () => {
+          console.log("Welcome: Disconnect event from ethereum provider");
+          handleAccountsChanged([]);
+        });
+      }
+    } catch (listenerError) {
+      console.error("Welcome: Error setting up account change listeners:", listenerError);
     }
 
     // Multiple delayed checks to ensure provider is fully initialized
@@ -239,10 +360,29 @@ export const Welcome = () => {
     return () => {
       timeoutChecks.forEach(timeout => clearTimeout(timeout));
 
-      // Remove account change listeners
-      if (window.lukso && typeof window.lukso.removeListener === 'function') {
-        window.lukso.removeListener('accountsChanged', handleAccountsChanged);
-        window.lukso.removeListener('contextAccountsChanged', handleAccountsChanged);
+      // Remove account change listeners with proper error handling
+      try {
+        if (window.lukso && typeof window.lukso.removeListener === 'function') {
+          console.log("Welcome: Removing window.lukso event listeners");
+          window.lukso.removeListener('accountsChanged', handleAccountsChanged);
+          window.lukso.removeListener('contextAccountsChanged', handleAccountsChanged);
+          window.lukso.removeListener('disconnect', () => {
+            console.log("Welcome: Disconnect event from UP Provider");
+            handleAccountsChanged([]);
+          });
+        }
+
+        // Also try with ethereum provider
+        if (window.ethereum &&
+          (window.ethereum.isLukso || window.ethereum.isUniversalProfile) &&
+          typeof window.ethereum.removeListener === 'function') {
+          console.log("Welcome: Removing window.ethereum event listeners");
+          window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
+          window.ethereum.removeListener('contextAccountsChanged', handleAccountsChanged);
+          window.ethereum.removeListener('disconnect', () => handleAccountsChanged([]));
+        }
+      } catch (cleanupError) {
+        console.error("Welcome: Error removing event listeners:", cleanupError);
       }
     };
   }, [handleAccountsChanged]);
@@ -289,7 +429,10 @@ export const Welcome = () => {
   return (
     <Stack gap="xl" py={40} px={px} align="center">
       <Stack gap="md" align="center" maw={600} w="100%">
-        <Title order={1}>XMTP.🆙</Title>
+        <Title order={1} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          XMTP.
+          <Image src="/up-icon.jpeg" width={32} height={32} radius="sm" alt="UP" style={{ marginLeft: '4px' }} />
+        </Title>
         <Text fs="italic" size="xl" ta="center">
           encrypted messaging built with XMTP - for LUKSO
         </Text>

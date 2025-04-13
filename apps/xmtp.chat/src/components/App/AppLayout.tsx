@@ -1,6 +1,6 @@
 import { LoadingOverlay } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router";
 import { AppFooter } from "@/components/App/AppFooter";
 import { AppHeader } from "@/components/App/AppHeader";
@@ -24,17 +24,34 @@ export const AppLayout: React.FC = () => {
   const [opened, { toggle }] = useDisclosure();
 
   useEffect(() => {
-    if (!client) {
-      // save the current path to redirect to it after the client is initialized
-      if (
-        location.pathname !== "/welcome" &&
-        location.pathname !== "/disconnect"
-      ) {
-        setRedirectUrl(location.pathname);
-      }
-      void navigate("/welcome");
+    // For disconnect page, don't do anything - let the Disconnect component handle navigation
+    if (location.pathname === "/disconnect") {
+      return;
     }
-  }, [client]);
+
+    // Client check for non-disconnect, non-welcome pages
+    if (!client &&
+      location.pathname !== "/welcome" &&
+      location.pathname !== "/disconnect") {
+
+      console.log("AppLayout: No client found, redirecting to welcome page");
+
+      // Save the current path to redirect to it after the client is initialized
+      setRedirectUrl(location.pathname);
+
+      // Navigate to welcome page
+      navigate("/welcome");
+    }
+  }, [client, location.pathname, navigate, setRedirectUrl]);
+
+  // Special handling for disconnect page - simple loading only
+  if (location.pathname === "/disconnect") {
+    return (
+      <CenteredLayout>
+        <Outlet />
+      </CenteredLayout>
+    );
+  }
 
   return !client ? (
     <CenteredLayout>

@@ -3,15 +3,32 @@ import { useCallback } from "react";
 import { useNavigate } from "react-router";
 import { useRedirect } from "@/hooks/useRedirect";
 import { IconDots } from "@/icons/IconDots";
+import { useXMTP } from "@/contexts/XMTPContext";
+import { useDisconnect } from "wagmi";
 
 export const AppMenu: React.FC = () => {
   const navigate = useNavigate();
   const { setRedirectUrl } = useRedirect();
+  const { disconnect: disconnectXMTP } = useXMTP();
+  const { disconnect: disconnectWallet } = useDisconnect();
 
-  const handleDisconnect = useCallback(() => {
-    setRedirectUrl(location.pathname);
-    void navigate("/disconnect");
-  }, [navigate, setRedirectUrl]);
+  const handleDisconnect = () => {
+    try {
+      console.log("AppMenu: Starting disconnect process");
+      sessionStorage.setItem("disconnecting", "true");
+
+      // Clear any pending navigation flags first
+      sessionStorage.removeItem("pendingNavigation");
+      sessionStorage.removeItem("hasNavigatedToConversations");
+
+      // Use direct location change instead of React Router for more reliability
+      window.location.href = "/disconnect";
+    } catch (error) {
+      console.error("AppMenu: Error during disconnect:", error);
+      // Fallback to direct navigation if there's an error
+      window.location.href = "/disconnect";
+    }
+  };
 
   return (
     <Menu shadow="md" position="bottom-end">
