@@ -13,6 +13,29 @@ import {
 } from "wagmi/connectors";
 import { App } from "@/components/App/App";
 import { XMTPProvider } from "@/contexts/XMTPContext";
+import WasmHandler from "./components/WasmHandler";
+
+// Initialize the WASM module before anything else
+const initializeWasm = async () => {
+  try {
+    // This approach helps to ensure WASM modules are properly loaded
+    // before we try to use them in the application
+    console.log("Initializing WASM modules...");
+
+    // Load '@xmtp/wasm-bindings' dynamically to avoid build issues
+    const wasmModule = await import('@xmtp/wasm-bindings').catch(error => {
+      console.error("Failed to load WASM bindings:", error);
+      // Continue anyway to show fallback UI
+      return null;
+    });
+
+    console.log("WASM initialization complete:", wasmModule ? "Success" : "Failed but continuing");
+    return true;
+  } catch (error) {
+    console.error("Error initializing WASM:", error);
+    return false;
+  }
+};
 
 // Define all chain types locally
 const mainnet = {
@@ -131,17 +154,22 @@ export const config = createConfig({
 const root = document.getElementById("root");
 
 if (root) {
-  createRoot(root).render(
-    <BrowserRouter>
-      <WagmiProvider config={config}>
-        <QueryClientProvider client={queryClient}>
-          <MantineProvider>
-            <XMTPProvider>
-              <App />
-            </XMTPProvider>
-          </MantineProvider>
-        </QueryClientProvider>
-      </WagmiProvider>
-    </BrowserRouter>,
-  );
+  // Initialize WASM before rendering
+  initializeWasm().then(() => {
+    createRoot(root).render(
+      <BrowserRouter>
+        <WagmiProvider config={config}>
+          <QueryClientProvider client={queryClient}>
+            <MantineProvider>
+              <WasmHandler>
+                <XMTPProvider>
+                  <App />
+                </XMTPProvider>
+              </WasmHandler>
+            </MantineProvider>
+          </QueryClientProvider>
+        </WagmiProvider>
+      </BrowserRouter>,
+    );
+  });
 }
