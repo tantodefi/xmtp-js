@@ -2,6 +2,7 @@ import { Badge, TextInput, ActionIcon, Group, Tooltip, useMantineTheme } from "@
 import { useEffect, useRef, useState } from "react";
 import { IconEdit, IconCheck, IconX } from "@tabler/icons-react";
 import { useLocalStorage } from "@mantine/hooks";
+import { useAddressBook } from "@/hooks/useAddressBook";
 import classes from "./EditableAnonBadge.module.css";
 
 export type EditableAnonBadgeProps = {
@@ -24,6 +25,7 @@ export const EditableAnonBadge: React.FC<EditableAnonBadgeProps> = ({
   isInConversationHeader = false
 }) => {
   const theme = useMantineTheme();
+  const { addOrUpdateEntry, getEntry } = useAddressBook();
 
   // Console log to check if component is being rendered
   console.log("EditableAnonBadge rendering", {
@@ -85,6 +87,19 @@ export const EditableAnonBadge: React.FC<EditableAnonBadgeProps> = ({
     }
   }, [address, customNames, addressKey, conversationId]);
 
+  // Check if name exists in address book and use it as default 
+  useEffect(() => {
+    if (!address || conversationId) return;
+
+    const addressBookEntry = getEntry(address);
+    if (addressBookEntry && addressBookEntry.name) {
+      // Only update if it's different from current value
+      if (inputValue !== addressBookEntry.name) {
+        setInputValue(addressBookEntry.name);
+      }
+    }
+  }, [address, getEntry, conversationId]);
+
   const handleEditStart = () => {
     if (!editable) return;
     setIsEditing(true);
@@ -109,6 +124,16 @@ export const EditableAnonBadge: React.FC<EditableAnonBadgeProps> = ({
       ...prev,
       [storageKey]: { name: valueToSave, timestamp: Date.now() }
     }));
+
+    // Also update the address book if this is a global name (not conversation-specific)
+    if (!conversationId && address) {
+      addOrUpdateEntry({
+        address,
+        name: valueToSave,
+        timestamp: Date.now(),
+        source: 'local'
+      });
+    }
 
     setInputValue(valueToSave);
     setIsEditing(false);

@@ -3,13 +3,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ConversationsList } from "@/components/Conversations/ConversationList";
 import { ConversationsMenu } from "@/components/Conversations/ConversationsMenu";
 import { useConversations } from "@/hooks/useConversations";
+import { useAddressBook } from "@/hooks/useAddressBook";
 import { ContentLayout } from "@/layouts/ContentLayout";
 
 export const ConversationsNavbar: React.FC = () => {
   const { list, loading, syncing, conversations, stream, syncAll } =
     useConversations();
+  const {
+    isBackedUp,
+    isSyncing,
+    isBackingUp,
+    handleSync: syncAddressBook,
+    handleBackup: backupAddressBook
+  } = useAddressBook();
   const stopStreamRef = useRef<(() => void) | null>(null);
-  const [isAddressBookBackedUp, setIsAddressBookBackedUp] = useState(false);
 
   const startStream = useCallback(async () => {
     stopStreamRef.current = await stream();
@@ -39,14 +46,14 @@ export const ConversationsNavbar: React.FC = () => {
       await startStream();
     };
     void loadConversations();
-  }, []);
+  }, [list, startStream]);
 
   // stop streaming on unmount
   useEffect(() => {
     return () => {
       stopStream();
     };
-  }, []);
+  }, [stopStream]);
 
   return (
     <ContentLayout
@@ -92,7 +99,9 @@ export const ConversationsNavbar: React.FC = () => {
             <Button
               variant="light"
               color="gray"
-              disabled={isAddressBookBackedUp}
+              disabled={isBackedUp}
+              onClick={() => backupAddressBook()}
+              loading={isBackingUp}
               style={{ flex: 1 }}
             >
               Backup Contacts
@@ -100,6 +109,8 @@ export const ConversationsNavbar: React.FC = () => {
             <Button
               variant="subtle"
               color="blue"
+              onClick={() => syncAddressBook()}
+              loading={isSyncing}
               style={{ flex: 1 }}
             >
               Sync Contacts
