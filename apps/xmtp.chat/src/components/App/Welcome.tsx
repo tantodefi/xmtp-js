@@ -1,8 +1,9 @@
-import { Anchor, Stack, Text, Title, useMatches, Button, Divider, Box } from "@mantine/core";
+import { Anchor, Stack, Text, Title, useMatches, Button, Divider, Box, Paper, Accordion, Image } from "@mantine/core";
 import { Connect } from "@/components/App/Connect";
 import { useEffect, useState, useCallback } from "react";
 import { LuksoProfile } from "@/components/LuksoProfile";
 import { useNavigate } from "react-router";
+import { useConnect, useConnectors } from "wagmi";
 
 // Helper function to safely get all context accounts from LUKSO UP Provider
 const safeGetContextAccounts = async (): Promise<string[]> => {
@@ -112,6 +113,8 @@ export const Welcome = () => {
   const [contextAccounts, setContextAccounts] = useState<string[]>([]);
   const [gridOwnerXmtpAddress, setGridOwnerXmtpAddress] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const { connect } = useConnect();
+  const connectors = useConnectors();
 
   // Function to handle grid owner XMTP address found
   const handleGridOwnerXmtpAddressFound = (address: string) => {
@@ -131,6 +134,65 @@ export const Welcome = () => {
       setContextAccounts(accounts);
     }
   }, [navigate]);
+
+  // Handle Universal Profile connection button click
+  const handleUPConnect = useCallback(() => {
+    // Check if LUKSO extension is installed
+    if (!window.lukso) {
+      console.error("LUKSO UP browser extension not detected. Please install the extension and refresh the page.");
+      alert("LUKSO UP browser extension not detected. Please install the extension from https://chrome.google.com/webstore/detail/universal-profiles/abpickdkkbnbcoepogfhkhennhfhehfn");
+      return;
+    }
+
+    console.log("LUKSO UP browser extension detected, attempting to connect...");
+
+    try {
+      // Check that the request method exists before calling it
+      if (typeof window.lukso.request === 'function') {
+        window.lukso.request({ method: 'eth_requestAccounts' })
+          .then(() => {
+            console.log("LUKSO accounts requested successfully");
+
+            // Then use the injected connector
+            const connector = connectors.find((c) => c.name === "Injected");
+            if (!connector) {
+              console.error("Injected connector not found");
+              return;
+            }
+
+            // Connect using the injected connector
+            connect({ connector });
+
+            // Set a timeout to navigate to conversations if not redirected automatically
+            setTimeout(() => {
+              console.log("Checking if navigation to conversations is needed");
+              const currentPath = window.location.pathname;
+              if (currentPath === "/" || currentPath === "/welcome") {
+                console.log("Still on welcome page, forcing navigation to /conversations");
+                navigate("/conversations");
+              }
+            }, 3000); // 3 second timeout to allow normal navigation to happen first
+          })
+          .catch((error) => {
+            console.error("Error requesting LUKSO accounts:", error);
+          });
+      } else {
+        throw new Error("LUKSO provider does not have request method");
+      }
+    } catch (error) {
+      console.error("Failed to connect to LUKSO UP:", error);
+
+      // Fallback to standard injected connector
+      const connector = connectors.find((c) => c.name === "Injected");
+      if (!connector) {
+        console.error("Injected connector not found");
+        return;
+      }
+
+      // Connect using the injected connector
+      connect({ connector });
+    }
+  }, [connectors, connect, navigate]);
 
   useEffect(() => {
     const checkForContextAccounts = async () => {
@@ -226,16 +288,52 @@ export const Welcome = () => {
 
   return (
     <Stack gap="xl" py={40} px={px} align="center">
-      <Stack gap="md" align="center">
-        <Title order={1}>XMTP.chat is built for developers</Title>
-        <Text fs="italic" size="xl">
-          Learn to build with XMTP — using an app built with XMTP
+      <Stack gap="md" align="center" maw={600} w="100%">
+        <Title order={1}>XMTP.🆙</Title>
+        <Text fs="italic" size="xl" ta="center">
+          encrypted messaging built with XMTP - for LUKSO
         </Text>
       </Stack>
 
+      {/* Universal Profile Connection Section */}
+      <Paper withBorder p="md" radius="md" shadow="md" maw={600} w="100%" mt="lg">
+        <Stack gap="md" align="center">
+          <Box
+            display="flex"
+            style={{ alignItems: "center", justifyContent: "center" }}
+            mb="md"
+          >
+            <Image
+              src="/up-icon.jpeg"
+              alt="Universal Profile"
+              width={32}
+              height={32}
+              radius="sm"
+            />
+            <Text ml="md" fw={700} size="lg">Universal Profile</Text>
+          </Box>
+
+          <Text size="sm" ta="center">
+            Connect with your LUKSO Universal Profile for secure messaging with identity
+          </Text>
+
+          <Button
+            mt="md"
+            size="md"
+            color="blue"
+            fullWidth
+            onClick={handleUPConnect}
+            loading={isLoading}
+            disabled={isLoading}
+          >
+            Connect Universal Profile
+          </Button>
+        </Stack>
+      </Paper>
+
       {/* Show Grid Owner profile when available but user isn't logged in */}
-      {hasGridOwner && gridOwnerAddress && (
-        <Stack gap="lg" align="center" mb="lg">
+      {hasGridOwner && gridOwnerAddress && !isLoading && (
+        <Stack gap="lg" align="center" mb="lg" maw={600} w="100%">
           <Divider w="60%" />
           <Title order={3}>Grid Owner</Title>
           <Text size="sm" ta="center">
@@ -250,18 +348,29 @@ export const Welcome = () => {
           <Button
             size="sm"
             color="blue"
-            onClick={handleMessageGridOwner}>
+            onClick={handleMessageGridOwner}
+            disabled={isLoading}>
             Message Grid Owner
           </Button>
         </Stack>
       )}
 
-      <Stack gap="lg">
-        <Title order={3}>Connect</Title>
-        <Text>
-          To get started, connect your account or use an ephemeral one.
-        </Text>
-        <Connect />
+      {/* Other Connection Options in Accordion */}
+      <Accordion variant="contained" radius="md" maw={600} w="100%" mt="lg">
+        <Accordion.Item value="other-options">
+          <Accordion.Control>
+            <Text fw={600}>Other Connection Options</Text>
+          </Accordion.Control>
+          <Accordion.Panel>
+            <Text size="sm" mb="md">
+              To get started, connect your account or use an ephemeral one.
+            </Text>
+            <Connect />
+          </Accordion.Panel>
+        </Accordion.Item>
+      </Accordion>
+
+      <Stack gap="lg" maw={600} w="100%" mt="lg">
         <Title order={3}>Feedback</Title>
         <Stack gap="md">
           <Text>

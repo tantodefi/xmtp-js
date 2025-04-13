@@ -1,4 +1,4 @@
-import { Box, Group, LoadingOverlay, Stack } from "@mantine/core";
+import { Box, Group, LoadingOverlay, Stack, Image } from "@mantine/core";
 import { useCallback, useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router";
 import { hexToUint8Array } from "uint8array-extras";
@@ -28,7 +28,6 @@ import { CoinbaseWallet } from "@/icons/CoinbaseWallet";
 import { EphemeralWallet } from "@/icons/EphemeralWallet";
 import { InjectedWallet } from "@/icons/InjectedWallet";
 import { MetamaskWallet } from "@/icons/MetamaskWallet";
-import { UPWallet } from "@/icons/UPWallet";
 import { WalletConnectWallet } from "@/icons/WalletConnectWallet";
 import classes from "./Connect.module.css";
 
@@ -64,7 +63,7 @@ export const Connect = () => {
     environment,
     loggingLevel,
   } = useSettings();
-  
+
   // Ref to store the LUKSO UP provider
   const luksoProviderRef = useRef<ClientUPProvider | null>(null);
 
@@ -75,20 +74,20 @@ export const Connect = () => {
       try {
         console.log("Initializing LUKSO UP Provider from @lukso/up-provider");
         const upProvider = createClientUPProvider();
-        
+
         // Listen for account changes
         upProvider.on('accountsChanged', (accounts: string[]) => {
           console.log('UP Provider accounts changed:', accounts);
         });
-        
+
         // Listen for chain changes
         upProvider.on('chainChanged', (chainId: string) => {
           console.log('UP Provider chain changed:', chainId);
         });
-        
+
         // Store the provider in the ref
         luksoProviderRef.current = upProvider;
-        
+
         console.log("LUKSO UP Provider initialized:", {
           hasProvider: !!upProvider,
           allowedAccounts: upProvider.allowedAccounts,
@@ -98,7 +97,7 @@ export const Connect = () => {
         console.error("Error initializing LUKSO UP Provider:", error);
       }
     }
-    
+
     // Cleanup function
     return () => {
       if (luksoProviderRef.current) {
@@ -114,19 +113,19 @@ export const Connect = () => {
     console.log("Available connectors:", connectors.map(c => c.name));
     console.log("Window ethereum:", window.ethereum);
     console.log("Window lukso:", window.lukso);
-    
+
     // Try to detect if LUKSO extension is installed but not exposed
     try {
       type PotentialProvider = {
         isProvider?: boolean;
         [key: string]: any;
       };
-      
+
       const providers = Object.keys(window).filter(key => {
         const obj = (window as any)[key] as PotentialProvider | null;
         return (
-          typeof obj === 'object' && 
-          obj !== null && 
+          typeof obj === 'object' &&
+          obj !== null &&
           'isProvider' in obj
         );
       });
@@ -179,30 +178,30 @@ export const Connect = () => {
     if (ephemeralAccountEnabled) {
       setEphemeralAccountEnabled(false);
     }
-    
+
     // Check if LUKSO extension is installed
     if (!window.lukso) {
       console.error("LUKSO UP browser extension not detected. Please install the extension and refresh the page.");
       alert("LUKSO UP browser extension not detected. Please install the extension from https://chrome.google.com/webstore/detail/universal-profiles/abpickdkkbnbcoepogfhkhennhfhehfn");
       return;
     }
-    
+
     console.log("LUKSO UP browser extension detected, attempting to connect...");
-    
+
     // For UP Browser Extension, we first try direct connection
     try {
       // Directly request accounts from LUKSO provider
       window.lukso.request({ method: 'eth_requestAccounts' })
         .then(() => {
           console.log("LUKSO accounts requested successfully");
-          
+
           // Then use the injected connector
           const connector = connectors.find((c) => c.name === "Injected");
           if (!connector) {
             console.error("Injected connector not found");
             return;
           }
-          
+
           // Connect using the injected connector
           connect({ connector });
         })
@@ -211,14 +210,14 @@ export const Connect = () => {
         });
     } catch (error) {
       console.error("Failed to connect to LUKSO UP:", error);
-      
+
       // Fallback to standard injected connector
       const connector = connectors.find((c) => c.name === "Injected");
       if (!connector) {
         console.error("Injected connector not found");
         return;
       }
-      
+
       // Connect using the injected connector
       connect({ connector });
     }
@@ -242,7 +241,7 @@ export const Connect = () => {
         connectorName: connector?.name,
         status: status
       });
-      
+
       if (data?.account && connector) {
         try {
           console.log("WalletClient structure:", {
@@ -251,7 +250,7 @@ export const Connect = () => {
             transportType: typeof (data as any).transport,
             account: data.account
           });
-          
+
           // Get the provider and log it for debugging
           let provider;
           try {
@@ -280,7 +279,7 @@ export const Connect = () => {
           } catch (providerError) {
             console.error("Error getting provider:", providerError);
           }
-          
+
           console.log("Provider info:", {
             provider,
             window_lukso: window.lukso,
@@ -294,32 +293,32 @@ export const Connect = () => {
             is_upProvider_package: luksoProviderRef.current === provider,
             has_upProvider_package: !!luksoProviderRef.current
           });
-          
+
           if (provider) {
             // Use our utility function to detect LUKSO UP providers
             console.log("About to check if provider is LUKSO UP provider");
-            
+
             // Check if it's a LUKSO provider - either browser extension or package
             const isLuksoProvider = isLuksoUPProvider(provider) || (!!luksoProviderRef.current && provider === luksoProviderRef.current);
-            
-            console.log("Provider detection result:", { 
+
+            console.log("Provider detection result:", {
               provider: provider,
               isLuksoProvider: isLuksoProvider,
               windowLuksoDetection: window.lukso ? "window.lukso exists" : "no window.lukso",
               usingProxyEphemeralSigner: isLuksoProvider
             });
-            
+
             const chainId = await connector.getChainId();
-            
+
             let selectedSigner;
             if (isLuksoProvider) {
               console.log(`Initializing XMTP client for LUKSO UP with chainId ${chainId}`);
-              
+
               // For LUKSO, we need to ensure the same account gets the same ephemeral key
               // across sessions, otherwise messages won't be persistent
               const luksoAddressKey = `lukso_ephemeral_key_${data.account.address.toLowerCase()}`;
               let tempPrivateKey;
-              
+
               // Check if we already have a stored key for this LUKSO address
               const storedKey = localStorage.getItem(luksoAddressKey);
               if (storedKey) {
@@ -331,10 +330,10 @@ export const Connect = () => {
                 tempPrivateKey = generatePrivateKey();
                 localStorage.setItem(luksoAddressKey, tempPrivateKey);
               }
-              
+
               // Create a signer that will have persistent identity across sessions
               selectedSigner = createEphemeralSigner(tempPrivateKey);
-              
+
               console.log("Using persistent ephemeral signer for LUKSO with UP identifier:", {
                 luksoAddress: data.account.address,
                 ephemeralAddress: privateKeyToAccount(tempPrivateKey).address,
@@ -345,7 +344,7 @@ export const Connect = () => {
               // For other wallets, use the standard EOA signer
               selectedSigner = createEOASigner(data.account.address, data);
             }
-            
+
             // Initialize XMTP with the selected signer
             void initialize({
               dbEncryptionKey: encryptionKey
@@ -397,7 +396,7 @@ export const Connect = () => {
           onClick={handleEphemeralConnect}
         />
         <AccountCard
-          icon={<UPWallet />}
+          icon={<Image src="/up-icon.jpeg" width={28} height={28} radius="sm" alt="Universal Profile" />}
           label="Universal Profile"
           onClick={handleUPConnect}
         />
