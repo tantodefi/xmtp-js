@@ -8,6 +8,8 @@ v2 https://xmtp-chat-up-tantodefis-projects.vercel.app/
 
 **xmtp.up** is a next-generation dApp that brings together [XMTP](https://xmtp.org/) and [LUKSO Universal Profiles](https://docs.lukso.tech/essentials/universal-profile/) to enable truly decentralized, cross-platform messaging and identity. By combining XMTP's secure, open messaging protocol with LUKSO's Universal Profile standard, users gain full ownership of their communications and on-chain identity—no centralized gatekeepers, no walled gardens.
 
+![xmtp.up](images/xmtp.up-graphic.png)
+
 > **Learn more about decentralized identity and XMTP:** [https://xmtp.org/identity](https://xmtp.org/identity)
 
 ---
