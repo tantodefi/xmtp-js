@@ -5,6 +5,10 @@ import { LuksoProfile } from "@/components/LuksoProfile";
 import { useNavigate } from "react-router";
 import { useConnect, useConnectors, useDisconnect } from "wagmi";
 import { useXMTP } from "@/contexts/XMTPContext";
+import { Client } from "@xmtp/browser-sdk";
+import { createProxyEphemeralSigner, createEphemeralSigner } from "@/helpers/createSigner";
+import { useSettings } from "@/hooks/useSettings";
+import { Hex } from "viem";
 
 // Helper function to safely get all context accounts from LUKSO UP Provider
 const safeGetContextAccounts = async (): Promise<string[]> => {
@@ -129,20 +133,69 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
   const isProfileUnknown = !isLoading && (fullName === 'Unknown' || fullName === 'Unknown Profile');
   const isProfileError = !isLoading && (fullName === 'Network Error' || fullName === 'Error loading profile');
 
-  // TODO: Replace with your actual XMTP send logic
+  const { ephemeralAccountKey } = useSettings();
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSending(true);
     setError(null);
     try {
-      // Replace with actual XMTP send logic
-      // await sendMessageToGridOwner(gridOwnerAddress, message);
-      await new Promise((res) => setTimeout(res, 1000));
-      setSent(true);
-      setMessage('');
+      if (!xmtpAddress) {
+        setError("No XMTP address found for grid owner.");
+        setSending(false);
+        return;
+      }
+
+      // Get ephemeral key from settings/localStorage if available
+      let proxySigner;
+      try {
+        // Try to use user's persistent ephemeral key if present
+        if (ephemeralAccountKey) {
+          proxySigner = createEphemeralSigner(ephemeralAccountKey as Hex);
+        } else {
+          // Otherwise, use a random proxy ephemeral signer for this session
+          proxySigner = createProxyEphemeralSigner(gridOwnerAddress as `0x${string}`);
+        }
+      } catch (signerErr) {
+        setError('Failed to create proxy signer: ' + (signerErr instanceof Error ? signerErr.message : String(signerErr)));
+        setSending(false);
+        return;
+      }
+
+      // Create a new XMTP client instance with the proxy signer
+      let tempClient: Client;
+      try {
+        tempClient = await Client.create(proxySigner, { env: 'dev' });
+      } catch (clientErr) {
+        setError('Failed to create XMTP client: ' + (clientErr instanceof Error ? clientErr.message : String(clientErr)));
+        setSending(false);
+        return;
+      }
+
+      // Start a new DM with the grid owner's XMTP address (inboxId)
+      let conversation;
+      try {
+        // XMTP v3: use newDm with inboxId (address)
+        conversation = await tempClient.conversations.newDm(xmtpAddress);
+      } catch (convErr) {
+        setError('Failed to start conversation: ' + (convErr instanceof Error ? convErr.message : String(convErr)));
+        setSending(false);
+        return;
+      }
+
+      // Send the message
+      try {
+        await conversation.send(message);
+        setSent(true);
+        setMessage('');
+      } catch (sendErr) {
+        setError('Failed to send message: ' + (sendErr instanceof Error ? sendErr.message : String(sendErr)));
+      } finally {
+        setSending(false);
+        // Optionally: tempClient?.close();
+      }
     } catch (err: any) {
-      setError('Failed to send message');
-    } finally {
+      setError('Unexpected error: ' + (err instanceof Error ? err.message : String(err)));
       setSending(false);
     }
   };
