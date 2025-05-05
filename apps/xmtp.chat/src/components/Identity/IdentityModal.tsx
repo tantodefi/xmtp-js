@@ -370,7 +370,7 @@ export const IdentityModal: React.FC = () => {
                 </Group>
                 {/* Add the Upload Metadata button here */}
                 {upAddress && accountIdentifier && (
-                  <Group justify="flex-end">
+                  <Group justify="flex-end" align="center" gap={12}>
                     <Button
                       variant="outline"
                       color="blue"
@@ -379,6 +379,9 @@ export const IdentityModal: React.FC = () => {
                       disabled={isUploadingMetadata}>
                       {isUploadingMetadata ? "Uploading..." : "Upload Metadata"}
                     </Button>
+                    <Text c="red.7" size="sm" fw={600} style={{ maxWidth: 340 }}>
+                      Warning! Uploading XMTP metadata will erase all your UP metadata — this is a known bug. Use a backup UP on mainnet when testing upload.
+                    </Text>
                   </Group>
                 )}
                 {upAddress && upAddress !== accountIdentifier && (
