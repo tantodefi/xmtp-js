@@ -107,11 +107,42 @@ export function useLuksoProfileData(address?: string) {
                   }
                 }
                 // XMTP address detection (flat or nested)
+                let foundXmtp = false;
                 if (data.xmtp?.address) {
                   xmtpAddress = data.xmtp.address;
+                  foundXmtp = true;
+                  console.debug('[ProfileData] Found xmtp.address:', xmtpAddress);
                 } else if (data.xmtpAddress) {
                   xmtpAddress = data.xmtpAddress;
+                  foundXmtp = true;
+                  console.debug('[ProfileData] Found xmtpAddress:', xmtpAddress);
                 }
+                // Try LSP3Profile.links for xmtp: URI
+                if (!foundXmtp && data.LSP3Profile?.links && Array.isArray(data.LSP3Profile.links)) {
+                  for (const link of data.LSP3Profile.links) {
+                    if (typeof link.url === 'string' && link.url.startsWith('xmtp:')) {
+                      xmtpAddress = link.url.replace('xmtp:', '').trim();
+                      foundXmtp = true;
+                      console.debug('[ProfileData] Found xmtp address in LSP3Profile.links:', xmtpAddress);
+                      break;
+                    }
+                  }
+                }
+                // Try any custom fields
+                if (!foundXmtp && data.links && Array.isArray(data.links)) {
+                  for (const link of data.links) {
+                    if (typeof link.url === 'string' && link.url.startsWith('xmtp:')) {
+                      xmtpAddress = link.url.replace('xmtp:', '').trim();
+                      foundXmtp = true;
+                      console.debug('[ProfileData] Found xmtp address in profile.links:', xmtpAddress);
+                      break;
+                    }
+                  }
+                }
+                if (!foundXmtp) {
+                  console.debug('[ProfileData] No XMTP address found in profile for address', address, data);
+                }
+
               }
             }
           }

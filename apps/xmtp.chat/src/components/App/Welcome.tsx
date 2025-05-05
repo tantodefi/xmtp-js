@@ -116,24 +116,40 @@ import { useLuksoProfileData } from "@/components/useLuksoProfileData";
 import { Tooltip, ActionIcon, CopyButton, Group } from "@mantine/core";
 import { IconInfoCircle, IconCopy, IconRefresh } from "@tabler/icons-react";
 
+// =========================
+// ANONYMOUS MESSAGE FORM
+// This component is 100% isolated from all wallet connect, wagmi, and global XMTP client logic.
+// It does NOT use any wallet connection, chain switching, wagmi hooks, or global XMTP context.
+// Each message send creates a fresh ephemeral XMTP client and wallet for the form only.
+// =========================
+
 function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }) {
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [retryKey, setRetryKey] = useState(0);
-
-  // Fetch grid owner profile data (refetch on retry)
-  const { fullName, imgUrl, isLoading, xmtpAddress } = useLuksoProfileData(gridOwnerAddress + retryKey);
+  const [xmtpAddress, setXmtpAddress] = useState<string | null>(null);
+  const [profileLoaded, setProfileLoaded] = useState(false);
+  const { ephemeralAccountKey } = useSettings();
 
   // Helper: is the address empty or default zero?
   const isAddressEmpty = !gridOwnerAddress || gridOwnerAddress === '0x0000000000000000000000000000000000000000';
 
-  // Helper: is the profile unknown/invalid?
-  const isProfileUnknown = !isLoading && (fullName === 'Unknown' || fullName === 'Unknown Profile');
-  const isProfileError = !isLoading && (fullName === 'Network Error' || fullName === 'Error loading profile');
+  // --- UI: Visual divider and label for clarity ---
+  // (This can be moved into the JSX below if you want a more prominent separation)
+  // Example usage in JSX:
+  // <Divider my="xl" label="Anonymous Message to Grid Owner" labelPosition="center" />
 
-  const { ephemeralAccountKey } = useSettings();
+
+  // Handler to receive XMTP address from LuksoProfile
+  const handleXmtpAddressFound = (address: string) => {
+    setXmtpAddress(address);
+    setProfileLoaded(true);
+  };
+  // If profile loads but no address found
+  const handleProfileLoaded = () => {
+    setProfileLoaded(true);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -145,112 +161,78 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
         setSending(false);
         return;
       }
-
-      // Get ephemeral key from settings/localStorage if available
       let proxySigner;
       try {
-        // Try to use user's persistent ephemeral key if present
-        if (ephemeralAccountKey) {
-          proxySigner = createEphemeralSigner(ephemeralAccountKey as Hex);
-        } else {
-          // Otherwise, use a random proxy ephemeral signer for this session
-          proxySigner = createProxyEphemeralSigner(gridOwnerAddress as `0x${string}`);
-        }
+        // Always use a new ephemeral wallet for XMTP
+        const { Wallet } = await import('ethers');
+        const { xmtpEthers6SignerAdapter } = await import('./xmtpEthers6Adapter');
+        const ephemeralWallet = Wallet.createRandom();
+        proxySigner = xmtpEthers6SignerAdapter(ephemeralWallet);
+        console.log('Created new ephemeral XMTP signer:', ephemeralWallet.address);
       } catch (signerErr) {
-        setError('Failed to create proxy signer: ' + (signerErr instanceof Error ? signerErr.message : String(signerErr)));
+        setError('Failed to create ephemeral XMTP signer: ' + (signerErr instanceof Error ? signerErr.message : String(signerErr)));
         setSending(false);
+        console.error('Ephemeral signer creation error:', signerErr);
         return;
       }
-
-      // Create a new XMTP client instance with the proxy signer
       let tempClient: Client;
       try {
-        tempClient = await Client.create(proxySigner, { env: 'dev' });
+        // Add a timeout for Client.create
+        tempClient = await Promise.race([
+          Client.create(proxySigner, { env: 'dev' }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('XMTP Client.create timed out (possible CSP/WASM issue)')), 10000))
+        ]);
+        console.log('XMTP Client created:', tempClient);
       } catch (clientErr) {
         setError('Failed to create XMTP client: ' + (clientErr instanceof Error ? clientErr.message : String(clientErr)));
         setSending(false);
+        console.error('XMTP client creation error:', clientErr);
         return;
       }
-
-      // Start a new DM with the grid owner's XMTP address (inboxId)
       let conversation;
       try {
-        // XMTP v3: use newDm with inboxId (address)
         conversation = await tempClient.conversations.newDm(xmtpAddress);
+        console.log('Started new DM conversation:', conversation);
       } catch (convErr) {
         setError('Failed to start conversation: ' + (convErr instanceof Error ? convErr.message : String(convErr)));
         setSending(false);
+        console.error('Conversation creation error:', convErr);
         return;
       }
-
-      // Send the message
       try {
-        await conversation.send(message);
+        // Add a timeout for conversation.send
+        await Promise.race([
+          conversation.send(message),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('XMTP conversation.send timed out (possible CSP/WASM/network issue)')), 10000))
+        ]);
         setSent(true);
         setMessage('');
+        console.log('Message sent successfully');
       } catch (sendErr) {
         setError('Failed to send message: ' + (sendErr instanceof Error ? sendErr.message : String(sendErr)));
+        console.error('Message send error:', sendErr);
       } finally {
         setSending(false);
-        // Optionally: tempClient?.close();
       }
     } catch (err: any) {
       setError('Unexpected error: ' + (err instanceof Error ? err.message : String(err)));
       setSending(false);
+      console.error('Unexpected error in handleSubmit:', err);
     }
   };
-
-  if (isAddressEmpty) {
-    return (
-      <Box style={{ textAlign: 'center', width: '100%' }}>
-        <Text color="red" fw={500} mb="xs">No grid owner detected for this context.</Text>
-        <Tooltip label="Grid owner address is empty or not set.">
-          <ActionIcon color="gray" variant="subtle"><IconInfoCircle size={18} /></ActionIcon>
-        </Tooltip>
-      </Box>
-    );
-  }
 
   if (sent) {
     return <Text color="green">Message sent to grid owner!</Text>;
   }
 
   return (
-    <Box style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, width: '100%' }}>
-      {/* Profile avatar and name inline above input */}
-      <Box style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-        <Image
-          src={imgUrl}
-          alt="Grid Owner Avatar"
-          width={40}
-          height={40}
-          radius="xl"
-          style={{ border: '2px solid #eee', background: '#fafafa' }}
-        />
-        <Group gap={6}>
-          <Text fw={600} size="md">
-            {isLoading ? 'Loading...' : fullName}
-          </Text>
-          {xmtpAddress && !isProfileUnknown && !isProfileError && (
-            <Tooltip label={`XMTP address found: ${xmtpAddress}`}>
-              <ActionIcon color="green" variant="light" size="sm">
-                <span role="img" aria-label="XMTP found">✓</span>
-              </ActionIcon>
-            </Tooltip>
-          )}
-          {(isProfileUnknown || isProfileError) && (
-            <Tooltip label={
-              isProfileUnknown ?
-                'This address does not have a Universal Profile or LSP3 metadata.' :
-                'There was a problem loading this profile. Check your network and try again.'
-            }>
-              <ActionIcon color={isProfileError ? 'red' : 'gray'} variant="subtle">
-                <IconInfoCircle size={18} />
-              </ActionIcon>
-            </Tooltip>
-          )}
-        </Group>
-      </Box>
+    <Box style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, width: '100%' }}>
+      {/* LuksoProfile fetches and displays the profile and XMTP address */}
+      <LuksoProfile
+        address={gridOwnerAddress}
+        onXmtpAddressFound={handleXmtpAddressFound}
+        currentXmtpAddress={xmtpAddress || undefined}
+      />
       {/* Show the address with copy button */}
       <Group gap={8} mb={-4}>
         <Text size="xs" color="dimmed">{gridOwnerAddress.slice(0, 8)}...{gridOwnerAddress.slice(-4)}</Text>
@@ -263,34 +245,56 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
             </Tooltip>
           )}
         </CopyButton>
+        {/* XMTP status indicator */}
+        {!profileLoaded ? (
+          <Tooltip label="Checking for XMTP address...">
+            <ActionIcon color="gray" variant="subtle" size="sm">
+              <span className="spinner" style={{ display: 'inline-block', width: 14, height: 14, border: '2px solid #bbb', borderTop: '2px solid #888', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+            </ActionIcon>
+          </Tooltip>
+        ) : xmtpAddress ? (
+          <Tooltip label={`XMTP address found: ${xmtpAddress}`}>
+            <ActionIcon color="green" variant="light" size="sm">
+              <span role="img" aria-label="XMTP found">✓</span>
+            </ActionIcon>
+          </Tooltip>
+        ) : (
+          <Tooltip label="No XMTP address found for this profile">
+            <ActionIcon color="red" variant="subtle" size="sm">
+              <span role="img" aria-label="XMTP not found">✗</span>
+            </ActionIcon>
+          </Tooltip>
+        )}
       </Group>
-      {/* Retry button for error state */}
-      {isProfileError && (
-        <Button
-          leftSection={<IconRefresh size={16} />}
-          size="xs"
-          variant="light"
-          color="red"
-          onClick={() => setRetryKey((k) => k + 1)}
-          mb={-4}
-        >
-          Retry loading profile
-        </Button>
-      )}
+      <style>{`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      `}</style>
+      {/* Error message if present */}
+      {error && <Text color="red" size="sm">{error}</Text>}
+      {/* Message input form, only enabled if XMTP address is found */}
       <form onSubmit={handleSubmit} style={{ width: '100%' }}>
-        <Text mb="xs" fw={500}>Send a message to the grid owner:</Text>
-        <textarea
-          style={{ width: '100%', minHeight: 60, marginBottom: 8, borderRadius: 6, border: '1px solid #ccc', padding: 8 }}
-          value={message}
-          onChange={e => setMessage(e.target.value)}
-          placeholder="Type your message..."
-          disabled={sending || isProfileError}
-          required
-        />
-        {error && <Text color="red" size="sm">{error}</Text>}
-        <Button type="submit" color="#8B0000" loading={sending} disabled={sending || !message.trim() || isProfileError}>
-          Send Message
-        </Button>
+        <Group gap={8} align="flex-end" style={{ width: '100%' }}>
+          <input
+            type="text"
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder="Send a message to the grid owner..."
+            style={{ flex: 1, minWidth: 0, padding: 8, borderRadius: 4, border: '1px solid #ddd' }}
+            disabled={sending || !xmtpAddress || !profileLoaded}
+            required
+          />
+          <Button
+            type="submit"
+            size="sm"
+            loading={sending}
+            disabled={sending || !xmtpAddress || !profileLoaded}
+          >
+            Send
+          </Button>
+        </Group>
       </form>
     </Box>
   );
