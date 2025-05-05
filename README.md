@@ -38,7 +38,7 @@ v2 https://xmtp-chat-up-tantodefis-projects.vercel.app/
 ## AI agents 
 hey elsa on BASE network
 
-possibke to integrate more LUKSO specific ai agents with XMTP:  https://github.com/ephemeraHQ/xmtp-agent-examples
+possible to integrate more LUKSO specific ai agents with XMTP:  https://github.com/ephemeraHQ/xmtp-agent-examples
 
 ![ai agents](images/hey-elsa-ezgif.com-video-to-gif-converter.gif)
 
@@ -51,6 +51,8 @@ it's possible to iniate transactions from xmtp chats with the https://github.com
 Fix current known bugs regarding xmtp metadata upload and profile data erasure 
 
 ## Getting Started
+
+the xmtp.up app code is in the apps/xmtp.chat directory
 
 The app is built using the [XMTP client browser SDK](/sdks/browser-sdk/README.md), [React](https://react.dev/), and [RainbowKit](https://www.rainbowkit.com/). It is ready for both LUKSO and Ethereum environments.
 
