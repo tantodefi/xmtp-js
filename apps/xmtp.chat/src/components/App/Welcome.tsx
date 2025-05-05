@@ -744,7 +744,7 @@ export const Welcome = () => {
       {/* Show Grid Owner profile and message form if grid context is present and not connected */}
       {(() => {
   // Only use contextGridAccounts for grid owner context
-  const gridOwnerAddress = contextGridAccounts[1];
+  const gridOwnerAddress = contextGridAccounts[0];
   if (gridOwnerAddress && gridOwnerAddress !== '0x0000000000000000000000000000000000000000') {
     return (
       <Stack gap="lg" align="center" mb="lg" maw={600} w="100%">
