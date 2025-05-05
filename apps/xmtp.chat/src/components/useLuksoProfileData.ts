@@ -27,17 +27,19 @@ export function useLuksoProfileData(address?: string) {
     fullName: string;
     imgUrl: string;
     isLoading: boolean;
+    xmtpAddress?: string | null;
   }>({
     fullName: 'Loading...',
     imgUrl: makeBlockie(address || DEFAULT_ADDRESS),
     isLoading: true,
+    xmtpAddress: null,
   });
 
   useEffect(() => {
     let isMounted = true;
     async function fetchProfileData() {
       if (!address || address === DEFAULT_ADDRESS) {
-        setProfile({ fullName: 'Unknown', imgUrl: makeBlockie(DEFAULT_ADDRESS), isLoading: false });
+        setProfile({ fullName: 'Unknown', imgUrl: makeBlockie(DEFAULT_ADDRESS), isLoading: false, xmtpAddress: null });
         return;
       }
       setProfile(prev => ({ ...prev, isLoading: true }));
@@ -77,6 +79,7 @@ export function useLuksoProfileData(address?: string) {
           const profileInfo = profileData[0]?.value;
           let name = 'Unknown Profile';
           let imageUrl = makeBlockie(address);
+          let xmtpAddress: string | null = null;
           if (profileInfo && typeof profileInfo === 'object' && 'url' in profileInfo && typeof profileInfo.url === 'string' && profileInfo.url.startsWith('ipfs://')) {
             const ipfsUrl = `https://api.universalprofile.cloud/ipfs/${profileInfo.url.slice(7)}`;
             const response = await fetch(ipfsUrl).catch(() => null);
@@ -103,14 +106,20 @@ export function useLuksoProfileData(address?: string) {
                       : profileImage.url;
                   }
                 }
+                // XMTP address detection (flat or nested)
+                if (data.xmtp?.address) {
+                  xmtpAddress = data.xmtp.address;
+                } else if (data.xmtpAddress) {
+                  xmtpAddress = data.xmtpAddress;
+                }
               }
             }
           }
           if (isMounted) {
-            setProfile({ fullName: name, imgUrl: imageUrl, isLoading: false });
+            setProfile({ fullName: name, imgUrl: imageUrl, isLoading: false, xmtpAddress });
           }
         } else if (isMounted) {
-          setProfile(prev => ({ ...prev, fullName: 'Unknown Profile', isLoading: false }));
+          setProfile(prev => ({ ...prev, fullName: 'Unknown Profile', isLoading: false, xmtpAddress: null }));
         }
       } catch {
         if (isMounted) {

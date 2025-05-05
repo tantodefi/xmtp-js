@@ -213,109 +213,105 @@ export const IdentityModal: React.FC = () => {
     try {
       setIsUploadingMetadata(true);
 
-      // Create tag data
-      const xmtpTag = `xmtp:${accountIdentifier}`;
-      console.log(`Updating metadata with tag: ${xmtpTag}`);
+      // LSP3Profile key (for main profile metadata)
+      const lsp3ProfileKey = '0x5ef83ad9559033e6e941db7d7c495acdce616347d28e90c7ce47cbfcfcad3bc5';
 
-      // Using a custom key for XMTP metadata to avoid conflicts
-      const xmtpKeyName = 'XMTPAddress';
-      // Key hash is generated from the name using keccak256
-      const xmtpKey = '0x5ef83ad9559033e6e941db7d7c495acdce616347d28e90c7ce47cbfcfcad3bc5';
-
-      try {
-        // First check if we have an active provider
-        let provider: ethers.BrowserProvider | null = null;
-
-        if (window.lukso && typeof window.lukso.request === 'function') {
-          provider = new ethers.BrowserProvider(window.lukso as Eip1193Provider);
-          console.log("Using LUKSO provider");
-        } else if (window.ethereum && typeof window.ethereum.request === 'function') {
-          provider = new ethers.BrowserProvider(window.ethereum as Eip1193Provider);
-          console.log("Using Ethereum provider");
-        } else {
-          throw new Error("No compatible provider found. Please make sure you have the LUKSO browser extension installed.");
-        }
-
-        // Request account access if needed
-        const accounts = await provider.send('eth_requestAccounts', []);
-        if (!accounts || accounts.length === 0) {
-          throw new Error("No accounts found. Please connect your wallet.");
-        }
-
-        // Get the signer
-        const signer = await provider.getSigner();
-        const signerAddress = await signer.getAddress();
-
-        // Verify the signer matches the UP address
-        if (signerAddress.toLowerCase() !== upAddress.toLowerCase()) {
-          throw new Error(`Connected account (${signerAddress}) does not match UP address (${upAddress})`);
-        }
-
-        // Set up the Universal Profile contract interface
-        const universalProfile = new ethers.Contract(
-          upAddress,
-          UniversalProfileArtifact.abi,
-          signer
-        );
-
-        // First read existing metadata
-        let existingMetadata = {};
-        try {
-          const existingData = await universalProfile.getData(xmtpKey);
-          if (existingData && existingData !== '0x') {
-            const decodedData = ethers.toUtf8String(existingData);
-            existingMetadata = JSON.parse(decodedData);
-            console.log('Existing metadata:', existingMetadata);
-          }
-        } catch (error) {
-          console.log('No existing metadata found, starting fresh');
-        }
-
-        // Create the metadata object, preserving existing data
-        const xmtpMetadata = {
-          ...existingMetadata,
-          xmtp: {
-            address: accountIdentifier,
-            timestamp: Date.now(),
-            version: '1.0'
-          }
-        };
-
-        // Encode the metadata as bytes
-        const encodedMetadata = ethers.toUtf8Bytes(JSON.stringify(xmtpMetadata));
-
-        // Encode the function call for setData
-        const setDataPayload = universalProfile.interface.encodeFunctionData('setData', [
-          xmtpKey,
-          encodedMetadata
-        ]);
-
-        // Execute the transaction through the Universal Profile
-        const tx = await universalProfile.execute(
-          0, // Operation type: CALL
-          upAddress, // Target: Universal Profile
-          0, // Value
-          setDataPayload
-        );
-
-        const receipt = await tx.wait();
-        console.log('Metadata update transaction:', receipt);
-
-        notifications.show({
-          title: "Success",
-          message: "Metadata updated successfully",
-          color: "green",
-        });
-      } catch (error) {
-        console.error('Error updating metadata:', error);
-        notifications.show({
-          title: "Error",
-          message: error instanceof Error ? error.message : "Failed to update metadata",
-          color: "red",
-        });
+      // 1. Get provider and signer
+      let provider: ethers.BrowserProvider | null = null;
+      if (window.lukso && typeof window.lukso.request === 'function') {
+        provider = new ethers.BrowserProvider(window.lukso as Eip1193Provider);
+        console.log("Using LUKSO provider");
+      } else if (window.ethereum && typeof window.ethereum.request === 'function') {
+        provider = new ethers.BrowserProvider(window.ethereum as Eip1193Provider);
+        console.log("Using Ethereum provider");
+      } else {
+        throw new Error("No compatible provider found. Please make sure you have the LUKSO browser extension installed.");
       }
+
+      // Request account access if needed
+      const accounts = await provider.send('eth_requestAccounts', []);
+      if (!accounts || accounts.length === 0) {
+        throw new Error("No accounts found. Please connect your wallet.");
+      }
+      const signer = await provider.getSigner();
+      const signerAddress = await signer.getAddress();
+      if (signerAddress.toLowerCase() !== upAddress.toLowerCase()) {
+        throw new Error(`Connected account (${signerAddress}) does not match UP address (${upAddress})`);
+      }
+
+      // Set up the Universal Profile contract interface
+      const universalProfile = new ethers.Contract(
+        upAddress,
+        UniversalProfileArtifact.abi,
+        signer
+      );
+
+      // 2. Read existing metadata from LSP3Profile
+      let existingProfile = {};
+      try {
+        const raw = await universalProfile.getData(lsp3ProfileKey);
+        if (raw && raw !== '0x') {
+          // LSP3Profile is usually a JSON URI, e.g. 'ipfs://...'
+          let decoded = ethers.toUtf8String(raw);
+          if (decoded.startsWith('ipfs://')) {
+            // Fetch from IPFS gateway
+            const ipfsHash = decoded.replace('ipfs://', '');
+            const ipfsUrl = `https://api.universalprofile.cloud/ipfs/${ipfsHash}`;
+            const resp = await fetch(ipfsUrl);
+            if (resp.ok) {
+              existingProfile = await resp.json();
+            } else {
+              throw new Error('Failed to fetch profile JSON from IPFS');
+            }
+          } else {
+            // Sometimes profile is stored directly as JSON string
+            try {
+              existingProfile = JSON.parse(decoded);
+            } catch (e) {
+              existingProfile = {};
+              console.warn('Profile at LSP3Profile key is not valid JSON.');
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('No existing LSP3Profile metadata found, starting fresh');
+      }
+
+      // 3. Merge/set the xmtp field, preserve all others
+      const updatedProfile = {
+        ...existingProfile,
+        xmtp: {
+          address: accountIdentifier,
+          timestamp: Date.now(),
+          version: '1.0',
+        },
+      };
+
+      // 4. Encode and write back
+      const encodedProfile = ethers.toUtf8Bytes(JSON.stringify(updatedProfile));
+      const setDataPayload = universalProfile.interface.encodeFunctionData('setData', [
+        lsp3ProfileKey,
+        encodedProfile,
+      ]);
+
+      // Execute the transaction through the Universal Profile
+      const tx = await universalProfile.execute(
+        0, // Operation type: CALL
+        upAddress, // Target: Universal Profile
+        0, // Value
+        setDataPayload
+      );
+
+      const receipt = await tx.wait();
+      console.log('Metadata update transaction:', receipt);
+
+      notifications.show({
+        title: "Success",
+        message: "Metadata updated successfully",
+        color: "green",
+      });
     } catch (error) {
-      console.error('Error in metadata upload:', error);
+      console.error('Error uploading metadata:', error);
       notifications.show({
         title: "Error",
         message: error instanceof Error ? error.message : "Failed to upload metadata",

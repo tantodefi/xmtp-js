@@ -109,14 +109,25 @@ const safeGetContextAccounts = async (): Promise<string[]> => {
 
 import { useLuksoProfileData } from "@/components/useLuksoProfileData";
 
+import { Tooltip, ActionIcon, CopyButton, Group } from "@mantine/core";
+import { IconInfoCircle, IconCopy, IconRefresh } from "@tabler/icons-react";
+
 function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }) {
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
 
-  // Fetch grid owner profile data
-  const { fullName, imgUrl, isLoading } = useLuksoProfileData(gridOwnerAddress);
+  // Fetch grid owner profile data (refetch on retry)
+  const { fullName, imgUrl, isLoading, xmtpAddress } = useLuksoProfileData(gridOwnerAddress + retryKey);
+
+  // Helper: is the address empty or default zero?
+  const isAddressEmpty = !gridOwnerAddress || gridOwnerAddress === '0x0000000000000000000000000000000000000000';
+
+  // Helper: is the profile unknown/invalid?
+  const isProfileUnknown = !isLoading && (fullName === 'Unknown' || fullName === 'Unknown Profile');
+  const isProfileError = !isLoading && (fullName === 'Network Error' || fullName === 'Error loading profile');
 
   // TODO: Replace with your actual XMTP send logic
   const handleSubmit = async (e: React.FormEvent) => {
@@ -136,6 +147,17 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
     }
   };
 
+  if (isAddressEmpty) {
+    return (
+      <Box style={{ textAlign: 'center', width: '100%' }}>
+        <Text color="red" fw={500} mb="xs">No grid owner detected for this context.</Text>
+        <Tooltip label="Grid owner address is empty or not set.">
+          <ActionIcon color="gray" variant="subtle"><IconInfoCircle size={18} /></ActionIcon>
+        </Tooltip>
+      </Box>
+    );
+  }
+
   if (sent) {
     return <Text color="green">Message sent to grid owner!</Text>;
   }
@@ -152,10 +174,56 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
           radius="xl"
           style={{ border: '2px solid #eee', background: '#fafafa' }}
         />
-        <Text fw={600} size="md">
-          {isLoading ? 'Loading...' : fullName}
-        </Text>
+        <Group gap={6}>
+          <Text fw={600} size="md">
+            {isLoading ? 'Loading...' : fullName}
+          </Text>
+          {xmtpAddress && !isProfileUnknown && !isProfileError && (
+            <Tooltip label={`XMTP address found: ${xmtpAddress}`}>
+              <ActionIcon color="green" variant="light" size="sm">
+                <span role="img" aria-label="XMTP found">✓</span>
+              </ActionIcon>
+            </Tooltip>
+          )}
+          {(isProfileUnknown || isProfileError) && (
+            <Tooltip label={
+              isProfileUnknown ?
+                'This address does not have a Universal Profile or LSP3 metadata.' :
+                'There was a problem loading this profile. Check your network and try again.'
+            }>
+              <ActionIcon color={isProfileError ? 'red' : 'gray'} variant="subtle">
+                <IconInfoCircle size={18} />
+              </ActionIcon>
+            </Tooltip>
+          )}
+        </Group>
       </Box>
+      {/* Show the address with copy button */}
+      <Group gap={8} mb={-4}>
+        <Text size="xs" color="dimmed">{gridOwnerAddress.slice(0, 8)}...{gridOwnerAddress.slice(-4)}</Text>
+        <CopyButton value={gridOwnerAddress} timeout={2000}>
+          {({ copied, copy }) => (
+            <Tooltip label={copied ? 'Copied!' : 'Copy address'}>
+              <ActionIcon onClick={copy} color={copied ? 'green' : 'gray'} size="sm" variant="subtle">
+                <IconCopy size={16} />
+              </ActionIcon>
+            </Tooltip>
+          )}
+        </CopyButton>
+      </Group>
+      {/* Retry button for error state */}
+      {isProfileError && (
+        <Button
+          leftSection={<IconRefresh size={16} />}
+          size="xs"
+          variant="light"
+          color="red"
+          onClick={() => setRetryKey((k) => k + 1)}
+          mb={-4}
+        >
+          Retry loading profile
+        </Button>
+      )}
       <form onSubmit={handleSubmit} style={{ width: '100%' }}>
         <Text mb="xs" fw={500}>Send a message to the grid owner:</Text>
         <textarea
@@ -163,17 +231,18 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
           value={message}
           onChange={e => setMessage(e.target.value)}
           placeholder="Type your message..."
-          disabled={sending}
+          disabled={sending || isProfileError}
           required
         />
         {error && <Text color="red" size="sm">{error}</Text>}
-        <Button type="submit" color="#8B0000" loading={sending} disabled={sending || !message.trim()}>
+        <Button type="submit" color="#8B0000" loading={sending} disabled={sending || !message.trim() || isProfileError}>
           Send Message
         </Button>
       </form>
     </Box>
   );
 }
+
 
 export const Welcome = () => {
   const px = useMatches({
@@ -731,9 +800,6 @@ export const Welcome = () => {
           <Stack gap="lg" align="center" mb="lg" maw={600} w="100%">
             <Divider w="60%" />
             <Title order={3}>Grid Owner</Title>
-            <Text size="sm" ta="center">
-              This dApp is installed on a Universal Profile grid
-            </Text>
             <Box w="100%" maw={400}>
               <MessageGridOwnerForm gridOwnerAddress={contextGridAccounts[0] || ''} />
             </Box>
@@ -770,20 +836,6 @@ export const Welcome = () => {
               filing an issue
             </Anchor>{" "}
             on GitHub.
-          </Text>
-          <Text>
-            Check out the official{" "}
-            <Anchor href="https://docs.xmtp.org/" target="_blank">
-              documentation
-            </Anchor>{" "}
-            for more information on how to build with XMTP.
-          </Text>
-          <Text>
-            If you have other questions about XMTP, visit our{" "}
-            <Anchor href="https://community.xmtp.org/" target="_blank">
-              community forums
-            </Anchor>
-            .
           </Text>
         </Stack>
       </Stack>
