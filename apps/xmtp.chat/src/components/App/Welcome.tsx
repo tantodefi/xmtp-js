@@ -463,13 +463,22 @@ export const Welcome = () => {
           <Button
             mt="md"
             size="md"
-            color="blue"
+            color="#8B0000"
             fullWidth
             onClick={handleUPConnect}
             loading={isLoading}
             disabled={isLoading}
+            styles={(theme) => ({
+              root: {
+                backgroundColor: '#8B0000',
+                color: theme.white,
+                '&:hover': {
+                  backgroundColor: '#6b0000',
+                },
+              },
+            })}
           >
-            Connect Universal Profile
+            Connect to XMTP
           </Button>
         </Stack>
       </Paper>
