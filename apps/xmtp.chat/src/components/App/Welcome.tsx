@@ -292,65 +292,10 @@ export const Welcome = () => {
     console.log('[UPProvider] updateConnected:', { accs, ctxAccs, chain });
   }, []);
 
-  // --- Poll for contextAccounts on mount for slow provider injection ---
+  // --- Initialize provider state and set up event listeners for LUKSO UP Provider ---
   useEffect(() => {
-    let stopped = false;
-    let pollCount = 0;
-    const maxPolls = 15; // 3 seconds at 200ms intervals
-    async function poll() {
-      if (stopped) return;
-      const upProvider: any = window.lukso || (window.ethereum && (window.ethereum.isLukso || window.ethereum.isUniversalProfile) ? window.ethereum : null);
-      if (!upProvider) {
-        pollCount++;
-        if (pollCount < maxPolls) setTimeout(poll, 200);
-        return;
-      }
-      let ctxAccounts: string[] | undefined = undefined;
-      if (typeof upProvider.request === 'function') {
-        try {
-          ctxAccounts = await upProvider.request({ method: 'up_contextAccounts', params: [] });
-          if (Array.isArray(ctxAccounts) && ctxAccounts.length > 0) {
-            updateContextGridAccounts(ctxAccounts as Array<`0x${string}`>, 'poll (request)');
-            //console.log('[UPProvider] contextAccounts detected by poll (request):', ctxAccounts);
-            stopped = true;
-            return;
-          }
-        } catch (err) {
-          // Not supported or error, fallback below
-        }
-        // Fallback to eth_accounts even if up_contextAccounts fails
-        try {
-          const ethAccounts = await upProvider.request({ method: 'eth_accounts' });
-          if (Array.isArray(ethAccounts) && ethAccounts.length > 0) {
-            updateContextGridAccounts(ethAccounts as Array<`0x${string}`>, 'poll (eth_accounts fallback)');
-            stopped = true;
-            return;
-          }
-        } catch (ethErr) {
-          // ignore
-        }
-      }
-      // fallback to property if available
-      if (Array.isArray(upProvider.contextAccounts) && upProvider.contextAccounts.length > 0) {
-        updateContextGridAccounts(upProvider.contextAccounts as Array<`0x${string}`>, 'poll (property)');
-        stopped = true;
-        return;
-      }
-      pollCount++;
-      if (pollCount < maxPolls) {
-        setTimeout(poll, 200);
-      } else {
-        console.log('[UPProvider] contextAccounts polling finished, not found after 3s');
-      }
-    }
-    poll();
-  }, []);
-
-  useEffect(() => {
-    let upProvider: any = window.lukso;
-    if (!upProvider && window.ethereum && (window.ethereum.isLukso || window.ethereum.isUniversalProfile)) {
-      upProvider = window.ethereum;
-    }
+    // Get the provider from window
+    let upProvider: any = window.lukso || (window.ethereum && (window.ethereum.isLukso || window.ethereum.isUniversalProfile) ? window.ethereum : null);
     if (!upProvider) {
       console.warn('[UPProvider] No UP provider detected');
       return;
@@ -798,22 +743,21 @@ export const Welcome = () => {
 
       {/* Show Grid Owner profile and message form if grid context is present and not connected */}
       {(() => {
-        console.log('[DEBUG] Render check:', {
-          contextGridAccounts,
-          contextGridAccountsLength: contextGridAccounts.length,
-          walletConnected,
-        });
-        // TEMP: Always render for debugging
-        return (
-          <Stack gap="lg" align="center" mb="lg" maw={600} w="100%">
-            <Divider w="60%" />
-            <Title order={3}>Grid Owner</Title>
-            <Box w="100%" maw={400}>
-              <MessageGridOwnerForm gridOwnerAddress={contextGridAccounts[0] || ''} />
-            </Box>
-          </Stack>
-        );
-      })()}
+  // Only use contextGridAccounts for grid owner context
+  const gridOwnerAddress = contextGridAccounts[1];
+  if (gridOwnerAddress && gridOwnerAddress !== '0x0000000000000000000000000000000000000000') {
+    return (
+      <Stack gap="lg" align="center" mb="lg" maw={600} w="100%">
+        <Divider w="60%" />
+        <Title order={3}>Grid Owner</Title>
+        <Box w="100%" maw={400}>
+          <MessageGridOwnerForm gridOwnerAddress={gridOwnerAddress} />
+        </Box>
+      </Stack>
+    );
+  }
+  return null;
+})()}
 
 
 
