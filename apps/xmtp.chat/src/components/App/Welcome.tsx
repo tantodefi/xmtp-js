@@ -105,6 +105,76 @@ const safeGetContextAccounts = async (): Promise<string[]> => {
   }
 };
 
+
+
+import { useLuksoProfileData } from "@/components/useLuksoProfileData";
+
+function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }) {
+  const [message, setMessage] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch grid owner profile data
+  const { fullName, imgUrl, isLoading } = useLuksoProfileData(gridOwnerAddress);
+
+  // TODO: Replace with your actual XMTP send logic
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSending(true);
+    setError(null);
+    try {
+      // Replace with actual XMTP send logic
+      // await sendMessageToGridOwner(gridOwnerAddress, message);
+      await new Promise((res) => setTimeout(res, 1000));
+      setSent(true);
+      setMessage('');
+    } catch (err: any) {
+      setError('Failed to send message');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  if (sent) {
+    return <Text color="green">Message sent to grid owner!</Text>;
+  }
+
+  return (
+    <Box style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, width: '100%' }}>
+      {/* Profile avatar and name inline above input */}
+      <Box style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+        <Image
+          src={imgUrl}
+          alt="Grid Owner Avatar"
+          width={40}
+          height={40}
+          radius="xl"
+          style={{ border: '2px solid #eee', background: '#fafafa' }}
+        />
+        <Text fw={600} size="md">
+          {isLoading ? 'Loading...' : fullName}
+        </Text>
+      </Box>
+      <form onSubmit={handleSubmit} style={{ width: '100%' }}>
+        <Text mb="xs" fw={500}>Send a message to the grid owner:</Text>
+        <textarea
+          style={{ width: '100%', minHeight: 60, marginBottom: 8, borderRadius: 6, border: '1px solid #ccc', padding: 8 }}
+          value={message}
+          onChange={e => setMessage(e.target.value)}
+          placeholder="Type your message..."
+          disabled={sending}
+          required
+        />
+        {error && <Text color="red" size="sm">{error}</Text>}
+        <Button type="submit" color="#8B0000" loading={sending} disabled={sending || !message.trim()}>
+          Send Message
+        </Button>
+      </form>
+    </Box>
+  );
+}
+
 export const Welcome = () => {
   const px = useMatches({
     base: "5%",
@@ -118,6 +188,169 @@ export const Welcome = () => {
   const { disconnect } = useDisconnect();
   const { disconnect: disconnectXMTP, client } = useXMTP();
   const connectors = useConnectors();
+
+  // --- Grid/Provider State ---
+  const [chainId, setChainId] = useState<number>(0);
+  const [accounts, setAccounts] = useState<Array<`0x${string}`>>([]);
+  const [contextGridAccounts, setContextGridAccounts] = useState<Array<`0x${string}`>>([]);
+
+  // Centralized updater for contextGridAccounts
+  const updateContextGridAccounts = useCallback((newAccounts: Array<`0x${string}`>, source: string) => {
+    setContextGridAccounts(prev => {
+      const areEqual = Array.isArray(prev) && Array.isArray(newAccounts) && prev.length === newAccounts.length && prev.every((v, i) => v === newAccounts[i]);
+      if (!areEqual) {
+        console.log(`[Grid] contextGridAccounts updated from '${source}':`, newAccounts);
+        return newAccounts;
+      } else {
+        console.log(`[Grid] contextGridAccounts unchanged from '${source}'.`);
+        return prev;
+      }
+    });
+  }, []);
+  const [walletConnected, setWalletConnected] = useState(false);
+
+  // Unified update function for connection state
+  const updateConnected = useCallback((accs: Array<`0x${string}`>, ctxAccs: Array<`0x${string}`>, chain: number) => {
+    setWalletConnected(accs.length > 0 && ctxAccs.length > 0);
+    console.log('[UPProvider] updateConnected:', { accs, ctxAccs, chain });
+  }, []);
+
+  // --- Poll for contextAccounts on mount for slow provider injection ---
+  useEffect(() => {
+    let stopped = false;
+    let pollCount = 0;
+    const maxPolls = 15; // 3 seconds at 200ms intervals
+    async function poll() {
+      if (stopped) return;
+      const upProvider: any = window.lukso || (window.ethereum && (window.ethereum.isLukso || window.ethereum.isUniversalProfile) ? window.ethereum : null);
+      if (!upProvider) {
+        pollCount++;
+        if (pollCount < maxPolls) setTimeout(poll, 200);
+        return;
+      }
+      let ctxAccounts: string[] | undefined = undefined;
+      if (typeof upProvider.request === 'function') {
+        try {
+          ctxAccounts = await upProvider.request({ method: 'up_contextAccounts', params: [] });
+          if (Array.isArray(ctxAccounts) && ctxAccounts.length > 0) {
+            updateContextGridAccounts(ctxAccounts as Array<`0x${string}`>, 'poll (request)');
+            //console.log('[UPProvider] contextAccounts detected by poll (request):', ctxAccounts);
+            stopped = true;
+            return;
+          }
+        } catch (err) {
+          // Not supported or error, fallback below
+        }
+        // Fallback to eth_accounts even if up_contextAccounts fails
+        try {
+          const ethAccounts = await upProvider.request({ method: 'eth_accounts' });
+          if (Array.isArray(ethAccounts) && ethAccounts.length > 0) {
+            updateContextGridAccounts(ethAccounts as Array<`0x${string}`>, 'poll (eth_accounts fallback)');
+            stopped = true;
+            return;
+          }
+        } catch (ethErr) {
+          // ignore
+        }
+      }
+      // fallback to property if available
+      if (Array.isArray(upProvider.contextAccounts) && upProvider.contextAccounts.length > 0) {
+        updateContextGridAccounts(upProvider.contextAccounts as Array<`0x${string}`>, 'poll (property)');
+        stopped = true;
+        return;
+      }
+      pollCount++;
+      if (pollCount < maxPolls) {
+        setTimeout(poll, 200);
+      } else {
+        console.log('[UPProvider] contextAccounts polling finished, not found after 3s');
+      }
+    }
+    poll();
+  }, []);
+
+  useEffect(() => {
+    let upProvider: any = window.lukso;
+    if (!upProvider && window.ethereum && (window.ethereum.isLukso || window.ethereum.isUniversalProfile)) {
+      upProvider = window.ethereum;
+    }
+    if (!upProvider) {
+      console.warn('[UPProvider] No UP provider detected');
+      return;
+    }
+
+    let isMounted = true;
+
+    async function initProviderState() {
+      try {
+        // Chain ID
+        let _chainId = 0;
+        if (typeof upProvider.request === 'function') {
+          _chainId = parseInt(await upProvider.request({ method: 'eth_chainId' }), 16);
+        } else if (upProvider.chainId) {
+          _chainId = parseInt(upProvider.chainId, 16);
+        }
+        // Accounts
+        let _accounts: Array<`0x${string}`> = [];
+        if (typeof upProvider.request === 'function') {
+          _accounts = await upProvider.request({ method: 'eth_accounts' });
+        } else if (Array.isArray(upProvider.accounts)) {
+          _accounts = upProvider.accounts;
+        }
+        // Context accounts
+        let _ctxAccounts: Array<`0x${string}`> = [];
+        if (Array.isArray(upProvider.contextAccounts)) {
+          _ctxAccounts = upProvider.contextAccounts;
+        } else if (typeof upProvider.request === 'function') {
+          try {
+            _ctxAccounts = await upProvider.request({ method: 'up_contextAccounts', params: [] });
+          } catch { }
+        }
+        if (isMounted) {
+          setChainId(_chainId);
+          setAccounts(_accounts);
+          updateContextGridAccounts(_ctxAccounts, 'initProviderState');
+          updateConnected(_accounts, _ctxAccounts, _chainId);
+        }
+      } catch (err) {
+        console.error('[UPProvider] Error initializing provider state:', err);
+      }
+    }
+
+    initProviderState();
+
+    // Event handlers
+    const handleAccountsChanged = (_accounts: Array<`0x${string}`>) => {
+      setAccounts(_accounts);
+      updateConnected(_accounts, contextGridAccounts, chainId);
+      console.log('[UPProvider] accountsChanged:', _accounts);
+    };
+    const handleContextAccountsChanged = (_ctxAccounts: Array<`0x${string}`>) => {
+      updateContextGridAccounts(_ctxAccounts, 'contextAccountsChanged event');
+      updateConnected(accounts, _ctxAccounts, chainId);
+      console.log('[UPProvider] contextAccountsChanged:', _ctxAccounts);
+    };
+    const handleChainChanged = (_chainId: string | number) => {
+      const parsed = typeof _chainId === 'string' ? parseInt(_chainId, 16) : _chainId;
+      setChainId(parsed);
+      updateConnected(accounts, contextGridAccounts, parsed);
+      console.log('[UPProvider] chainChanged:', parsed);
+    };
+
+    // Subscribe
+    upProvider.on && upProvider.on('accountsChanged', handleAccountsChanged);
+    upProvider.on && upProvider.on('contextAccountsChanged', handleContextAccountsChanged);
+    upProvider.on && upProvider.on('chainChanged', handleChainChanged);
+
+    // Cleanup
+    return () => {
+      isMounted = false;
+      upProvider.removeListener && upProvider.removeListener('accountsChanged', handleAccountsChanged);
+      upProvider.removeListener && upProvider.removeListener('contextAccountsChanged', handleContextAccountsChanged);
+      upProvider.removeListener && upProvider.removeListener('chainChanged', handleChainChanged);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [updateConnected]);
 
   // Helper function for comprehensive cleanup when disconnecting
   const performFullDisconnect = useCallback(async () => {
@@ -293,6 +526,7 @@ export const Welcome = () => {
         setIsLoading(true);
         const accounts = await safeGetContextAccounts();
         setContextAccounts(accounts);
+        updateContextGridAccounts(accounts as Array<`0x${string}`>, 'initial context accounts check');
         console.log("Welcome: Initial context accounts check:", accounts);
       } catch (error) {
         console.error("Welcome: Error checking for LUKSO context accounts:", error);
@@ -348,6 +582,7 @@ export const Welcome = () => {
           const accounts = await safeGetContextAccounts();
           if (accounts.length !== contextAccounts.length) {
             setContextAccounts(accounts);
+            updateContextGridAccounts(accounts as Array<`0x${string}`>, `delayed check ${delay}ms`);
             console.log(`Welcome: Updated context accounts after ${delay}ms delay:`, accounts);
           }
         } catch (error) {
@@ -420,9 +655,10 @@ export const Welcome = () => {
   // Log render state for debugging
   console.log("Welcome: Render state:", {
     contextAccounts,
-    hasGridOwner,
-    gridOwnerAddress,
-    gridOwnerXmtpAddress,
+    contextGridAccounts,
+    contextGridAccountsLength: contextGridAccounts.length,
+    gridOwnerCandidate: contextGridAccounts[1],
+    walletConnected,
     rawLukso: window.lukso?.contextAccounts
   });
 
@@ -483,29 +719,29 @@ export const Welcome = () => {
         </Stack>
       </Paper>
 
-      {/* Show Grid Owner profile when available but user isn't logged in */}
-      {hasGridOwner && gridOwnerAddress && !isLoading && (
-        <Stack gap="lg" align="center" mb="lg" maw={600} w="100%">
-          <Divider w="60%" />
-          <Title order={3}>Grid Owner</Title>
-          <Text size="sm" ta="center">
-            This dApp is installed on a Universal Profile grid
-          </Text>
-          <Box w="100%" maw={400}>
-            <LuksoProfile
-              address={gridOwnerAddress}
-              onXmtpAddressFound={handleGridOwnerXmtpAddressFound}
-            />
-          </Box>
-          <Button
-            size="sm"
-            color="blue"
-            onClick={handleMessageGridOwner}
-            disabled={isLoading}>
-            Message Grid Owner
-          </Button>
-        </Stack>
-      )}
+      {/* Show Grid Owner profile and message form if grid context is present and not connected */}
+      {(() => {
+        console.log('[DEBUG] Render check:', {
+          contextGridAccounts,
+          contextGridAccountsLength: contextGridAccounts.length,
+          walletConnected,
+        });
+        // TEMP: Always render for debugging
+        return (
+          <Stack gap="lg" align="center" mb="lg" maw={600} w="100%">
+            <Divider w="60%" />
+            <Title order={3}>Grid Owner</Title>
+            <Text size="sm" ta="center">
+              This dApp is installed on a Universal Profile grid
+            </Text>
+            <Box w="100%" maw={400}>
+              <MessageGridOwnerForm gridOwnerAddress={contextGridAccounts[0] || ''} />
+            </Box>
+          </Stack>
+        );
+      })()}
+
+
 
       {/* Other Connection Options in Accordion */}
       <Accordion variant="contained" radius="md" maw={600} w="100%" mt="lg">
