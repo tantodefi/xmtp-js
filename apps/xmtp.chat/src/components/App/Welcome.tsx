@@ -743,7 +743,7 @@ export const Welcome = () => {
 
       {/* Show Grid Owner profile and message form if grid context is present and not connected */}
       {(() => {
-  // Only use contextGridAccounts for grid owner context
+  // Robust grid owner detection with fallback and user warning
   const gridOwnerAddress = contextGridAccounts[0];
   if (gridOwnerAddress && gridOwnerAddress !== '0x0000000000000000000000000000000000000000') {
     return (
@@ -756,10 +756,26 @@ export const Welcome = () => {
       </Stack>
     );
   }
+  // If we are missing context accounts, show a warning for the user
+  if (!gridOwnerAddress || gridOwnerAddress === '0x0000000000000000000000000000000000000000') {
+    return (
+      <Stack gap="md" align="center" mb="lg" maw={600} w="100%">
+        <Divider w="60%" />
+        <Title order={3}>Grid Owner</Title>
+        <Text c="red" fw={600} ta="center">
+          Grid owner context not detected.<br />
+          This app must be opened from within the parent dapp or Universal Profile context.<br />
+          If you are testing locally, ensure you simulate or inject the correct context accounts.<br />
+          <br />
+          <span style={{ fontSize: '0.9em', color: '#888' }}>
+            (Debug: contextGridAccounts = {JSON.stringify(contextGridAccounts)})
+          </span>
+        </Text>
+      </Stack>
+    );
+  }
   return null;
 })()}
-
-
 
       {/* Other Connection Options in Accordion */}
       <Accordion variant="contained" radius="md" maw={600} w="100%" mt="lg">
