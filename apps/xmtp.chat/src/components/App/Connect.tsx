@@ -221,148 +221,18 @@ export const Connect = () => {
     }
   };
 
-  // maybe initialize an XMTP client on mount
-  useEffect(() => {
-    // are we using an ephemeral account?
-    if (ephemeralAccountEnabled && ephemeralAccountKey) {
-      handleEphemeralConnect();
-    }
-  }, []);
+  // Removed auto-initialization of XMTP client on mount. XMTP connection is now only triggered by explicit user action.
+  // useEffect(() => {
+  //   if (ephemeralAccountEnabled && ephemeralAccountKey) {
+  //     handleEphemeralConnect();
+  //   }
+  // }, []);
 
-  // look for wallet connection
-  useEffect(() => {
-    const initClient = async () => {
-      const connector = account.connector;
-      console.log("initClient called - checking for account:", {
-        hasAccount: !!data?.account,
-        hasConnector: !!connector,
-        connectorName: connector?.name,
-        status: status
-      });
-
-      if (data?.account && connector) {
-        try {
-          console.log("WalletClient structure:", {
-            dataKeys: data ? Object.keys(data) : [],
-            hasTransport: !!(data as any).transport,
-            transportType: typeof (data as any).transport,
-            account: data.account
-          });
-
-          // Get the provider and log it for debugging
-          let provider;
-          try {
-            console.log("Attempting to get provider from connector:", connector.name);
-            // Try multiple ways to get the provider
-            if (connector.getProvider) {
-              provider = await connector.getProvider();
-              console.log("Got provider from connector.getProvider()");
-            } else if ((data as any).transport) {
-              provider = (data as any).transport;
-              console.log("Got provider from data.transport");
-            } else if ((data as any).provider) {
-              provider = (data as any).provider;
-              console.log("Got provider from data.provider");
-            } else {
-              // Try the UP provider from @lukso/up-provider first
-              if (luksoProviderRef.current) {
-                provider = luksoProviderRef.current;
-                console.log("Got provider from luksoProviderRef.current");
-              } else {
-                // As a last resort, try window objects
-                provider = window.lukso || window.ethereum;
-                console.log("Got provider from window object:", provider === window.lukso ? "lukso" : "ethereum");
-              }
-            }
-          } catch (providerError) {
-            console.error("Error getting provider:", providerError);
-          }
-
-          console.log("Provider info:", {
-            provider,
-            window_lukso: window.lukso,
-            has_lukso: !!window.lukso,
-            provider_type: typeof provider,
-            provider_methods: provider ? Object.keys(provider).slice(0, 10) : [],
-            provider_isLukso: provider?.isLukso,
-            provider_isUP: provider?.isUP,
-            connector_name: connector.name,
-            account_address: data.account.address,
-            is_upProvider_package: luksoProviderRef.current === provider,
-            has_upProvider_package: !!luksoProviderRef.current
-          });
-
-          if (provider) {
-            // Use our utility function to detect LUKSO UP providers
-            console.log("About to check if provider is LUKSO UP provider");
-
-            // Check if it's a LUKSO provider - either browser extension or package
-            const isLuksoProvider = isLuksoUPProvider(provider) || (!!luksoProviderRef.current && provider === luksoProviderRef.current);
-
-            console.log("Provider detection result:", {
-              provider: provider,
-              isLuksoProvider: isLuksoProvider,
-              windowLuksoDetection: window.lukso ? "window.lukso exists" : "no window.lukso",
-              usingProxyEphemeralSigner: isLuksoProvider
-            });
-
-            const chainId = await connector.getChainId();
-
-            let selectedSigner;
-            if (isLuksoProvider) {
-              console.log(`Initializing XMTP client for LUKSO UP with chainId ${chainId}`);
-
-              // For LUKSO, we need to ensure the same account gets the same ephemeral key
-              // across sessions, otherwise messages won't be persistent
-              const luksoAddressKey = `lukso_ephemeral_key_${data.account.address.toLowerCase()}`;
-              let tempPrivateKey;
-
-              // Check if we already have a stored key for this LUKSO address
-              const storedKey = localStorage.getItem(luksoAddressKey);
-              if (storedKey) {
-                console.log("Found stored ephemeral key for LUKSO address, ensuring persistence");
-                tempPrivateKey = storedKey as Hex;
-              } else {
-                // Generate a new key and store it for future sessions
-                console.log("Generating new ephemeral key for LUKSO address");
-                tempPrivateKey = generatePrivateKey();
-                localStorage.setItem(luksoAddressKey, tempPrivateKey);
-              }
-
-              // Store the UP address for future reconnection
-              localStorage.setItem('upAddress', data.account.address);
-
-              // Create a signer that will have persistent identity across sessions
-              selectedSigner = createEphemeralSigner(tempPrivateKey);
-
-              console.log("Using persistent ephemeral signer for LUKSO with UP identifier:", {
-                luksoAddress: data.account.address,
-                ephemeralAddress: privateKeyToAccount(tempPrivateKey).address,
-                isPersistent: true
-              });
-            } else {
-              console.log(`Initializing XMTP client with chainId ${chainId}, using EOA signer`);
-              // For other wallets, use the standard EOA signer
-              selectedSigner = createEOASigner(data.account.address, data);
-            }
-
-            // Initialize XMTP with the selected signer
-            void initialize({
-              dbEncryptionKey: encryptionKey
-                ? hexToUint8Array(encryptionKey)
-                : undefined,
-              env: environment,
-              loggingLevel,
-              signer: selectedSigner
-            });
-          }
-        } catch (error) {
-          console.error("Error initializing client:", error);
-        }
-      }
-    };
-    void initClient();
-  }, [account.address, data?.account, encryptionKey, environment, initialize, loggingLevel]);
+  // Removed auto-initialization of wallet/XMTP client on mount or account change. XMTP connection is now only triggered by explicit user action.
+  // useEffect(() => {
+  //   const initClient = async () => { ... };
+  //   void initClient();
+  // }, [account.address, data?.account, encryptionKey, environment, initialize, loggingLevel]);
 
   useEffect(() => {
     if (client) {

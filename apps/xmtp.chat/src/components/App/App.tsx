@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from "react-router";
+import { Navigate, Route, Routes } from "react-router-dom";
 import { WhiskSdkProvider } from '@paperclip-labs/whisk-sdk';
 import { AppLayout } from "@/components/App/AppLayout";
 import { Disconnect } from "@/components/App/Disconnect";

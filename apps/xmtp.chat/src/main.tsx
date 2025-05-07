@@ -13,6 +13,7 @@ import {
 } from "wagmi/connectors";
 import { App } from "@/components/App/App";
 import { XMTPProvider } from "@/contexts/XMTPContext";
+import { UpProvider } from "@/contexts/UpProviderContext";
 import WasmHandler from "./components/WasmHandler";
 
 // Initialize the WASM module before anything else
@@ -163,7 +164,9 @@ if (root) {
             <MantineProvider>
               <WasmHandler>
                 <XMTPProvider>
-                  <App />
+                  <UpProvider>
+                    <App />
+                  </UpProvider>
                 </XMTPProvider>
               </WasmHandler>
             </MantineProvider>

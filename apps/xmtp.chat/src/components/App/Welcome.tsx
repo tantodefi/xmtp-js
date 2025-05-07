@@ -1,118 +1,11 @@
-import { Anchor, Stack, Text, Title, useMatches, Button, Divider, Box, Paper, Accordion, Image } from "@mantine/core";
-import { Connect } from "@/components/App/Connect";
-import { useEffect, useState, useCallback } from "react";
-import { LuksoProfile } from "@/components/LuksoProfile";
-import { useNavigate } from "react-router";
-import { useConnect, useConnectors, useDisconnect } from "wagmi";
-import { useXMTP } from "@/contexts/XMTPContext";
-import { Client } from "@xmtp/browser-sdk";
-import { createProxyEphemeralSigner, createEphemeralSigner } from "@/helpers/createSigner";
+import { Anchor, Stack, Text, Title, useMatches, Button, Divider, Box, Paper, Image, Accordion } from "@mantine/core";
+import { useNavigate } from "react-router-dom";
 import { useSettings } from "@/hooks/useSettings";
-import { Hex } from "viem";
-
-// Helper function to safely get all context accounts from LUKSO UP Provider
-const safeGetContextAccounts = async (): Promise<string[]> => {
-  try {
-    // Check if window.lukso exists and has the required methods
-    if (typeof window !== 'undefined') {
-      console.log("Welcome: Checking for LUKSO provider - window.lukso exists?", !!window.lukso);
-
-      // Check for the provider implementation exactly as UP Provider delivers it
-      if (window.lukso) {
-        // Access contextAccounts directly without lowercasing or preprocessing
-        if (window.lukso.contextAccounts) {
-          console.log("Welcome: Raw UP Provider contextAccounts:", window.lukso.contextAccounts);
-
-          // Just return them as-is for most accurate detection
-          if (Array.isArray(window.lukso.contextAccounts) && window.lukso.contextAccounts.length > 0) {
-            return [...window.lukso.contextAccounts];
-          }
-        }
-
-        // Use request methods as fallbacks
-        if (typeof window.lukso.request === 'function') {
-          console.log("Welcome: LUKSO provider detected with request method");
-
-          // Try up_contextAccounts RPC method
-          try {
-            console.log("Welcome: Trying up_contextAccounts RPC method");
-            const contextAccounts = await window.lukso.request({
-              method: 'up_contextAccounts',
-              params: []
-            });
-
-            console.log("Welcome: Raw up_contextAccounts result:", contextAccounts);
-
-            if (Array.isArray(contextAccounts) && contextAccounts.length > 0) {
-              return [...contextAccounts];
-            }
-          } catch (innerError) {
-            console.log("Welcome: Error calling up_contextAccounts, falling back to eth_accounts:", innerError);
-          }
-
-          // Fall back to eth_accounts as last resort
-          try {
-            console.log("Welcome: Trying eth_accounts as fallback");
-            const accounts = await window.lukso.request({
-              method: 'eth_accounts'
-            });
-
-            console.log("Welcome: Raw eth_accounts result:", accounts);
-
-            if (Array.isArray(accounts) && accounts.length > 0) {
-              return [...accounts];
-            }
-          } catch (accountError) {
-            console.error("Welcome: Error getting eth_accounts:", accountError);
-          }
-        }
-      }
-
-      // Try ethereum provider as another fallback if it's a LUKSO provider
-      if (window.ethereum &&
-        (window.ethereum.isLukso || window.ethereum.isUniversalProfile) &&
-        typeof window.ethereum.request === 'function') {
-        console.log("Welcome: Found LUKSO-compatible ethereum provider");
-
-        try {
-          const accounts = await window.ethereum.request({
-            method: 'eth_accounts'
-          });
-
-          console.log("Welcome: Raw ethereum provider accounts:", accounts);
-
-          if (Array.isArray(accounts) && accounts.length > 0) {
-            return [...accounts];
-          }
-        } catch (ethError) {
-          console.error("Welcome: Error getting accounts from ethereum provider:", ethError);
-        }
-      }
-    }
-
-    // Hard-coded fallback for testing - remove in production
-    console.log("Welcome: No LUKSO provider or context accounts found");
-    console.log("Welcome: Checking URL for grid parameter");
-
-    // Check URL for grid parameter for testing purposes
-    const urlParams = new URLSearchParams(window.location.search);
-    const gridParam = urlParams.get('grid');
-    if (gridParam && gridParam.startsWith('0x')) {
-      console.log("Welcome: Found grid parameter in URL:", gridParam);
-      return ['0x0000000000000000000000000000000000000000', gridParam];
-    }
-
-    return [];
-  } catch (error) {
-    console.error("Welcome: Error safely accessing LUKSO provider:", error);
-    return [];
-  }
-};
-
-
-
-import { useLuksoProfileData } from "@/components/useLuksoProfileData";
-
+import { Connect } from "./Connect";
+import { useEffect, useState } from "react";
+import { LuksoProfile } from "@/components/LuksoProfile";
+import { useXMTP } from "@/contexts/XMTPContext";
+import { useUpProvider } from "@/contexts/UpProviderContext";
 import { Tooltip, ActionIcon, CopyButton, Group } from "@mantine/core";
 import { IconInfoCircle, IconCopy, IconRefresh } from "@tabler/icons-react";
 
@@ -253,129 +146,59 @@ const handleSubmit = async (e: React.FormEvent) => {
 
 
 export const Welcome = () => {
+  // Use centralized UP provider context
+  const { contextAccounts, walletConnected } = useUpProvider();
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
+  const [renderError, setRenderError] = useState<Error | null>(null);
+  // XMTP hook must be at the top level
+  const { initialize, initializing, client, disconnect: disconnectXMTP } = useXMTP();
+const navigate = useNavigate();
+
+// Forward to /conversations when XMTP client is loaded
+useEffect(() => {
+  if (client) {
+    navigate('/conversations', { replace: true });
+  }
+}, [client, navigate]);
+
+  // Always show debug info at the top
+  // const debugBlock = (
+  //   <Paper withBorder p="xs" radius="md" shadow="sm" maw={800} w="100%" mt="xs" mb="md">
+  //     <Stack gap={2} align="flex-start">
+  //       <Text size="xs" c="dimmed">Debug info:</Text>
+  //       <Text size="xs" c="dimmed">walletConnected: {String(walletConnected)}</Text>
+  //       <Text size="xs" c="dimmed">contextAccounts: {JSON.stringify(contextAccounts)}</Text>
+  //       {retryError && <Text size="xs" color="red">Retry error: {retryError}</Text>}
+  //       {renderError && <Text size="xs" color="red">Render error: {renderError.message}</Text>}
+  //     </Stack>
+  //   </Paper>
+  // );
+
+  // No need for local safeGetContextAccounts or updateContextGridAccounts
+  // If you want to keep a retry, just re-fetch contextAccounts from provider if needed
+  const handleRetry = async () => {
+    setRetrying(true);
+    setRetryError(null);
+    try {
+      // Try to force provider to refresh contextAccounts
+      window.location.reload(); // simplest for now, or call provider.request if needed
+    } catch (err: any) {
+      setRetryError('Error checking context accounts: ' + (err?.message || err));
+    } finally {
+      setRetrying(false);
+    }
+  };
   const px = useMatches({
     base: "5%",
     sm: "10%",
   });
-  const navigate = useNavigate();
-  const [contextAccounts, setContextAccounts] = useState<string[]>([]);
   const [gridOwnerXmtpAddress, setGridOwnerXmtpAddress] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const { connect } = useConnect();
-  const { disconnect } = useDisconnect();
-  const { disconnect: disconnectXMTP, client } = useXMTP();
-  const connectors = useConnectors();
 
   // --- Grid/Provider State ---
-  const [chainId, setChainId] = useState<number>(0);
-  const [accounts, setAccounts] = useState<Array<`0x${string}`>>([]);
-  const [contextGridAccounts, setContextGridAccounts] = useState<Array<`0x${string}`>>([]);
-
-  // Centralized updater for contextGridAccounts
-  const updateContextGridAccounts = useCallback((newAccounts: Array<`0x${string}`>, source: string) => {
-    setContextGridAccounts(prev => {
-      const areEqual = Array.isArray(prev) && Array.isArray(newAccounts) && prev.length === newAccounts.length && prev.every((v, i) => v === newAccounts[i]);
-      if (!areEqual) {
-        console.log(`[Grid] contextGridAccounts updated from '${source}':`, newAccounts);
-        return newAccounts;
-      } else {
-        console.log(`[Grid] contextGridAccounts unchanged from '${source}'.`);
-        return prev;
-      }
-    });
-  }, []);
-  const [walletConnected, setWalletConnected] = useState(false);
-
-  // Unified update function for connection state
-  const updateConnected = useCallback((accs: Array<`0x${string}`>, ctxAccs: Array<`0x${string}`>, chain: number) => {
-    setWalletConnected(accs.length > 0 && ctxAccs.length > 0);
-    console.log('[UPProvider] updateConnected:', { accs, ctxAccs, chain });
-  }, []);
-
-  // --- Initialize provider state and set up event listeners for LUKSO UP Provider ---
-  useEffect(() => {
-    // Get the provider from window
-    let upProvider: any = window.lukso || (window.ethereum && (window.ethereum.isLukso || window.ethereum.isUniversalProfile) ? window.ethereum : null);
-    if (!upProvider) {
-      console.warn('[UPProvider] No UP provider detected');
-      return;
-    }
-
-    let isMounted = true;
-
-    async function initProviderState() {
-      try {
-        // Chain ID
-        let _chainId = 0;
-        if (typeof upProvider.request === 'function') {
-          _chainId = parseInt(await upProvider.request({ method: 'eth_chainId' }), 16);
-        } else if (upProvider.chainId) {
-          _chainId = parseInt(upProvider.chainId, 16);
-        }
-        // Accounts
-        let _accounts: Array<`0x${string}`> = [];
-        if (typeof upProvider.request === 'function') {
-          _accounts = await upProvider.request({ method: 'eth_accounts' });
-        } else if (Array.isArray(upProvider.accounts)) {
-          _accounts = upProvider.accounts;
-        }
-        // Context accounts
-        let _ctxAccounts: Array<`0x${string}`> = [];
-        if (Array.isArray(upProvider.contextAccounts)) {
-          _ctxAccounts = upProvider.contextAccounts;
-        } else if (typeof upProvider.request === 'function') {
-          try {
-            _ctxAccounts = await upProvider.request({ method: 'up_contextAccounts', params: [] });
-          } catch { }
-        }
-        if (isMounted) {
-          setChainId(_chainId);
-          setAccounts(_accounts);
-          updateContextGridAccounts(_ctxAccounts, 'initProviderState');
-          updateConnected(_accounts, _ctxAccounts, _chainId);
-        }
-      } catch (err) {
-        console.error('[UPProvider] Error initializing provider state:', err);
-      }
-    }
-
-    initProviderState();
-
-    // Event handlers
-    const handleAccountsChanged = (_accounts: Array<`0x${string}`>) => {
-      setAccounts(_accounts);
-      updateConnected(_accounts, contextGridAccounts, chainId);
-      console.log('[UPProvider] accountsChanged:', _accounts);
-    };
-    const handleContextAccountsChanged = (_ctxAccounts: Array<`0x${string}`>) => {
-      updateContextGridAccounts(_ctxAccounts, 'contextAccountsChanged event');
-      updateConnected(accounts, _ctxAccounts, chainId);
-      console.log('[UPProvider] contextAccountsChanged:', _ctxAccounts);
-    };
-    const handleChainChanged = (_chainId: string | number) => {
-      const parsed = typeof _chainId === 'string' ? parseInt(_chainId, 16) : _chainId;
-      setChainId(parsed);
-      updateConnected(accounts, contextGridAccounts, parsed);
-      console.log('[UPProvider] chainChanged:', parsed);
-    };
-
-    // Subscribe
-    upProvider.on && upProvider.on('accountsChanged', handleAccountsChanged);
-    upProvider.on && upProvider.on('contextAccountsChanged', handleContextAccountsChanged);
-    upProvider.on && upProvider.on('chainChanged', handleChainChanged);
-
-    // Cleanup
-    return () => {
-      isMounted = false;
-      upProvider.removeListener && upProvider.removeListener('accountsChanged', handleAccountsChanged);
-      upProvider.removeListener && upProvider.removeListener('contextAccountsChanged', handleContextAccountsChanged);
-      upProvider.removeListener && upProvider.removeListener('chainChanged', handleChainChanged);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [updateConnected]);
-
   // Helper function for comprehensive cleanup when disconnecting
-  const performFullDisconnect = useCallback(async () => {
+  const performFullDisconnect = async () => {
     console.log("Welcome: Performing full disconnect");
 
     // Disconnect from XMTP
@@ -386,16 +209,6 @@ export const Welcome = () => {
       }
     } catch (xmtpError) {
       console.error("Welcome: Error disconnecting from XMTP:", xmtpError);
-    }
-
-    // Disconnect from wallet
-    try {
-      if (disconnect) {
-        console.log("Welcome: Disconnecting from wallet");
-        await disconnect();
-      }
-    } catch (walletError) {
-      console.error("Welcome: Error disconnecting from wallet:", walletError);
     }
 
     // Also try to disconnect from UP Provider if it exists
@@ -436,256 +249,31 @@ export const Welcome = () => {
     }
 
     // Force navigation to welcome page
-    navigate("/welcome");
-  }, [navigate, disconnectXMTP, disconnect]);
-
-  // Function to handle grid owner XMTP address found
-  const handleGridOwnerXmtpAddressFound = (address: string) => {
-    console.log("Welcome: Grid owner XMTP address found:", address);
-    setGridOwnerXmtpAddress(address);
+    window.location.href = "/welcome";
   };
 
-  // Now update handleAccountsChanged to use this function
-  const handleAccountsChanged = useCallback(
-    async (accounts: string[]) => {
-      console.log("Welcome: Accounts changed", accounts);
-      try {
-        // No accounts means disconnected
-        if (!accounts || accounts.length === 0) {
-          console.log("Welcome: No accounts detected, user disconnected");
-          await performFullDisconnect();
-          return;
-        }
-
-        // Handle account changes
-        setContextAccounts(accounts);
-      } catch (error) {
-        console.error("Welcome: Error handling account changes:", error);
-      }
-    },
-    [setContextAccounts, performFullDisconnect]
-  );
-
-  // Add a specific effect to handle disconnection state
   useEffect(() => {
-    // If we're on conversations page but have no client or accounts, force redirect
-    if (
-      window.location.pathname.includes('/conversations') &&
-      (!client || contextAccounts.length === 0)
-    ) {
-      console.log("Welcome: On conversations page without client or accounts, forcing navigation to /welcome");
-      // Clear storage first
-      sessionStorage.removeItem('hasNavigatedToConversations');
-      sessionStorage.removeItem('pendingNavigation');
-
-      // Force navigation to welcome page
-      window.location.href = '/welcome';
-    }
-  }, [client, contextAccounts]);
-
-  // Handle Universal Profile connection button click
-  const handleUPConnect = useCallback(() => {
-    // Check if LUKSO extension is installed
-    if (!window.lukso) {
-      console.error("LUKSO UP browser extension not detected. Please install the extension and refresh the page.");
-      alert("LUKSO UP browser extension not detected. Please install the extension from https://chrome.google.com/webstore/detail/universal-profiles/abpickdkkbnbcoepogfhkhennhfhehfn");
-      return;
-    }
-
-    console.log("LUKSO UP browser extension detected, attempting to connect...");
-
     try {
-      // Check that the request method exists before calling it
-      if (typeof window.lukso.request === 'function') {
-        window.lukso.request({ method: 'eth_requestAccounts' })
-          .then(() => {
-            console.log("LUKSO accounts requested successfully");
-
-            // Then use the injected connector
-            const connector = connectors.find((c) => c.name === "Injected");
-            if (!connector) {
-              console.error("Injected connector not found");
-              return;
-            }
-
-            // Connect using the injected connector
-            connect({ connector });
-
-            // Set a timeout to navigate to conversations if not redirected automatically
-            setTimeout(() => {
-              console.log("Checking if navigation to conversations is needed");
-              const currentPath = window.location.pathname;
-              if (currentPath === "/" || currentPath === "/welcome") {
-                console.log("Still on welcome page, forcing navigation to /conversations");
-                navigate("/conversations");
-              }
-            }, 3000); // 3 second timeout to allow normal navigation to happen first
-          })
-          .catch((error) => {
-            console.error("Error requesting LUKSO accounts:", error);
-          });
-      } else {
-        throw new Error("LUKSO provider does not have request method");
-      }
-    } catch (error) {
-      console.error("Failed to connect to LUKSO UP:", error);
-
-      // Fallback to standard injected connector
-      const connector = connectors.find((c) => c.name === "Injected");
-      if (!connector) {
-        console.error("Injected connector not found");
-        return;
-      }
-
-      // Connect using the injected connector
-      connect({ connector });
-    }
-  }, [connectors, connect, navigate]);
-
-  useEffect(() => {
-    const checkForContextAccounts = async () => {
-      try {
-        setIsLoading(true);
-        const accounts = await safeGetContextAccounts();
-        setContextAccounts(accounts);
-        updateContextGridAccounts(accounts as Array<`0x${string}`>, 'initial context accounts check');
-        console.log("Welcome: Initial context accounts check:", accounts);
-      } catch (error) {
-        console.error("Welcome: Error checking for LUKSO context accounts:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    checkForContextAccounts();
-
-    // Add listeners for account changes - with error handling
-    try {
-      // First try with window.lukso (UP browser extension)
       if (window.lukso && typeof window.lukso.on === 'function') {
-        console.log("Welcome: Adding UP Provider account change listener to window.lukso");
-        window.lukso.on('accountsChanged', handleAccountsChanged);
-        window.lukso.on('contextAccountsChanged', handleAccountsChanged);
-
-        // Also listen for disconnect events
-        if (typeof window.lukso.on === 'function') {
-          window.lukso.on('disconnect', () => {
-            console.log("Welcome: Disconnect event from UP Provider");
-            handleAccountsChanged([]);
-          });
-        }
-      }
-
-      // Also try with ethereum provider as backup
-      if (window.ethereum &&
-        (window.ethereum.isLukso || window.ethereum.isUniversalProfile) &&
-        typeof window.ethereum.on === 'function') {
-        console.log("Welcome: Adding UP Provider account change listener to window.ethereum");
-        window.ethereum.on('accountsChanged', handleAccountsChanged);
-        window.ethereum.on('contextAccountsChanged', handleAccountsChanged);
-
-        // Also listen for disconnect events
-        window.ethereum.on('disconnect', () => {
-          console.log("Welcome: Disconnect event from ethereum provider");
-          handleAccountsChanged([]);
+        window.lukso.on('accountsChanged', () => {
+          console.log("Welcome: Accounts changed event from UP Provider");
+        });
+        window.lukso.on('disconnect', () => {
+          console.log("Welcome: Disconnect event from UP Provider");
         });
       }
     } catch (listenerError) {
       console.error("Welcome: Error setting up account change listeners:", listenerError);
     }
-
-    // Multiple delayed checks to ensure provider is fully initialized
-    const checkIntervals = [500, 1500, 3000, 5000];
-
-    const timeoutChecks = checkIntervals.map(delay =>
-      setTimeout(async () => {
-        try {
-          console.log(`Welcome: Running delayed check (${delay}ms) for context accounts`);
-          const accounts = await safeGetContextAccounts();
-          if (accounts.length !== contextAccounts.length) {
-            setContextAccounts(accounts);
-            updateContextGridAccounts(accounts as Array<`0x${string}`>, `delayed check ${delay}ms`);
-            console.log(`Welcome: Updated context accounts after ${delay}ms delay:`, accounts);
-          }
-        } catch (error) {
-          console.error(`Welcome: Error in delayed context account check (${delay}ms):`, error);
-        }
-      }, delay)
-    );
-
-    // Cleanup
-    return () => {
-      timeoutChecks.forEach(timeout => clearTimeout(timeout));
-
-      // Remove account change listeners with proper error handling
-      try {
-        if (window.lukso && typeof window.lukso.removeListener === 'function') {
-          console.log("Welcome: Removing window.lukso event listeners");
-          window.lukso.removeListener('accountsChanged', handleAccountsChanged);
-          window.lukso.removeListener('contextAccountsChanged', handleAccountsChanged);
-          window.lukso.removeListener('disconnect', () => {
-            console.log("Welcome: Disconnect event from UP Provider");
-            handleAccountsChanged([]);
-          });
-        }
-
-        // Also try with ethereum provider
-        if (window.ethereum &&
-          (window.ethereum.isLukso || window.ethereum.isUniversalProfile) &&
-          typeof window.ethereum.removeListener === 'function') {
-          console.log("Welcome: Removing window.ethereum event listeners");
-          window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
-          window.ethereum.removeListener('contextAccountsChanged', handleAccountsChanged);
-          window.ethereum.removeListener('disconnect', () => handleAccountsChanged([]));
-        }
-      } catch (cleanupError) {
-        console.error("Welcome: Error removing event listeners:", cleanupError);
-      }
-    };
-  }, [handleAccountsChanged]);
-
-  // Handle messaging the grid owner
-  const handleMessageGridOwner = () => {
-    // For grid owner detection, we need second context account (index 1)
-    const gridOwnerAccount = contextAccounts.length > 1 ? contextAccounts[1] : null;
-
-    // If XMTP address is available, use it; otherwise fall back to UP address
-    const targetAddress = gridOwnerXmtpAddress || gridOwnerAccount;
-
-    if (targetAddress) {
-      console.log("Welcome: Navigating to conversation with grid owner:", targetAddress);
-      navigate(`/dm/${targetAddress}`);
-    }
-  };
-
-  // Check if we're in a grid context (second context account exists)
-  const hasGridOwner = contextAccounts.length > 1;
-  const gridOwnerAddress = hasGridOwner ? contextAccounts[1] : null;
-
-  // Force log the raw contents of window.lukso for debugging
-  useEffect(() => {
-    if (window.lukso) {
-      console.log("Welcome: Raw window.lukso content:", {
-        contextAccounts: window.lukso.contextAccounts,
-        hasOn: typeof window.lukso.on === 'function',
-        hasRequest: typeof window.lukso.request === 'function',
-        hasRemoveListener: typeof window.lukso.removeListener === 'function',
-      });
-    }
   }, []);
 
-  // Log render state for debugging
-  console.log("Welcome: Render state:", {
-    contextAccounts,
-    contextGridAccounts,
-    contextGridAccountsLength: contextGridAccounts.length,
-    gridOwnerCandidate: contextGridAccounts[1],
-    walletConnected,
-    rawLukso: window.lukso?.contextAccounts
-  });
+  // The grid owner is the first address in contextAccounts (if any)
+  const hasGridOwner = contextAccounts.length > 0 && !!contextAccounts[0];
+  const gridOwnerAddress = hasGridOwner ? contextAccounts[0] : null;
 
   return (
-    <Stack gap="xl" py={40} px={px} align="center">
+    <Stack gap="xs" py={16} px={10} align="center">
+      {/* {debugBlock} */}
       <Stack gap="md" align="center" maw={600} w="100%">
         <Title order={1} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           XMTP.
@@ -696,117 +284,136 @@ export const Welcome = () => {
         </Text>
       </Stack>
 
-      {/* Universal Profile Connection Section */}
-      <Paper withBorder p="md" radius="md" shadow="md" maw={600} w="100%" mt="lg">
-        <Stack gap="md" align="center">
-          <Box
-            display="flex"
-            style={{ alignItems: "center", justifyContent: "center" }}
-            mb="md"
-          >
-            <Image
-              src="/up-icon.jpeg"
-              alt="Universal Profile"
-              width={32}
-              height={32}
-              radius="sm"
-            />
-            <Text ml="md" fw={700} size="lg">Universal Profile</Text>
-          </Box>
-
-          <Text size="sm" ta="center">
-            Connect with your LUKSO Universal Profile for secure messaging with identity
-          </Text>
-
-          <Button
-            mt="md"
-            size="md"
-            color="#8B0000"
-            fullWidth
-            onClick={handleUPConnect}
-            loading={isLoading}
-            disabled={isLoading}
-            styles={(theme) => ({
-              root: {
-                backgroundColor: '#8B0000',
-                color: theme.white,
-                '&:hover': {
-                  backgroundColor: '#6b0000',
-                },
-              },
-            })}
-          >
-            Connect to XMTP
-          </Button>
-        </Stack>
-      </Paper>
-
-      {/* Show Grid Owner profile and message form if grid context is present and not connected */}
-      {(() => {
-  // Robust grid owner detection with fallback and user warning
-  const gridOwnerAddress = contextGridAccounts[0];
-  if (gridOwnerAddress && gridOwnerAddress !== '0x0000000000000000000000000000000000000000') {
-    return (
-      <Stack gap="lg" align="center" mb="lg" maw={600} w="100%">
-        <Divider w="60%" />
-        <Title order={3}>Grid Owner</Title>
-        <Box w="100%" maw={400}>
+      {gridOwnerAddress && (
+        <>
           <MessageGridOwnerForm gridOwnerAddress={gridOwnerAddress} />
-        </Box>
-      </Stack>
-    );
+          {/* Connect to XMTP button */}
+          <Tooltip label={walletConnected ? (client ? 'Already connected to XMTP' : 'Signing into XMTP with a Proxy Ephemereal Signer') : 'Connect your wallet first'} disabled={walletConnected && !client}>
+            <span>
+              <Button
+                variant="light"
+                color="dark"
+                leftSection={<Image src="/xmtp-icon.png" alt="XMTP" width={24} height={24} radius="sm" />}
+                size="md"
+                radius="md"
+                mt="md"
+                mb="xs"
+                style={{ fontWeight: 600, fontSize: 16, display: 'flex', alignItems: 'center', gap: 8 }}
+                loading={initializing}
+                disabled={!walletConnected || !!client || initializing}
+                onClick={async () => {
+  setRenderError(null); // clear previous errors
+  function handleXmtpError(err: any) {
+    if (err?.name === "SwitchChainNotSupportedError" || (typeof err?.message === 'string' && err.message.includes('does not support programmatic chain switching'))) {
+      setRenderError(new Error('Universal Profile does not support programmatic chain switching. Please switch to the correct network in your wallet and try again.'));
+    } else {
+      setRenderError(err instanceof Error ? err : new Error(String(err)));
+    }
   }
-  // If we are missing context accounts, show a warning for the user
-  if (!gridOwnerAddress || gridOwnerAddress === '0x0000000000000000000000000000000000000000') {
-    return (
-      <Stack gap="md" align="center" mb="lg" maw={600} w="100%">
-        <Divider w="60%" />
-        <Title order={3}>Grid Owner</Title>
-        <Text c="red" fw={600} ta="center">
-          Grid owner context not detected.<br />
-          This app must be opened from within the parent dapp or Universal Profile context.<br />
-          If you are testing locally, ensure you simulate or inject the correct context accounts.<br />
-          <br />
-          <span style={{ fontSize: '0.9em', color: '#888' }}>
-            (Debug: contextGridAccounts = {JSON.stringify(contextGridAccounts)})
-          </span>
-        </Text>
-      </Stack>
-    );
+  try {
+    // Clean up any previous XMTP session state
+    try {
+      localStorage.removeItem("xmtp.context.autoConnect");
+      sessionStorage.removeItem("xmtp.auth.status");
+    } catch (e) {
+      // ignore
+    }
+    // --- Universal Profile (UP) wallet flow ---
+    // If UP, use proxy ephemeral signer as in Connect.tsx
+    const isUP = window.lukso && contextAccounts && contextAccounts.length > 0;
+    if (isUP) {
+      const upAddress = contextAccounts[0].toLowerCase();
+      // Generate or load persistent ephemeral key for this UP address
+      const luksoAddressKey = `lukso_ephemeral_key_${upAddress}`;
+      let tempPrivateKey = localStorage.getItem(luksoAddressKey);
+      if (!tempPrivateKey) {
+        tempPrivateKey = (await import('viem/accounts')).generatePrivateKey();
+        localStorage.setItem(luksoAddressKey, tempPrivateKey);
+      }
+      // Use proxy ephemeral signer
+      const { createProxyEphemeralSigner } = await import('@/helpers/createSigner');
+      const signer = createProxyEphemeralSigner(upAddress);
+      await initialize({ signer })
+        .catch((err: any) => {
+          handleXmtpError(err);
+          throw err;
+        });
+      // On success, go to /conversations
+      navigate('/conversations', { replace: true });
+      return;
+    }
+    // --- Non-UP wallet fallback (EOA, injected, etc) ---
+    let signer = undefined;
+    function isXMTPCompatibleSigner(obj: any): obj is { getAddress: () => Promise<string>; signMessage: (msg: string | Uint8Array) => Promise<string>; } {
+      return obj && typeof obj.getAddress === 'function' && typeof obj.signMessage === 'function';
+    }
+    if (window.ethereum && isXMTPCompatibleSigner(window.ethereum)) {
+      signer = window.ethereum;
+    }
+    if (!signer && contextAccounts && contextAccounts.length > 0) {
+      const candidate = contextAccounts[0];
+      if (isXMTPCompatibleSigner(candidate)) {
+        signer = candidate;
+      }
+    }
+    if (!signer) {
+      setRenderError(new Error('No compatible wallet signer found. Please ensure your wallet supports XMTP.'));
+      return;
+    }
+    await initialize({ signer })
+      .catch((err: any) => {
+        handleXmtpError(err);
+        throw err;
+      });
+    navigate('/conversations', { replace: true });
+  } catch (err: any) {
+    handleXmtpError(err);
+  } finally {
+    // No need to set initializing, handled by useXMTP
   }
-  return null;
-})()}
-
-      {/* Other Connection Options in Accordion */}
-      <Accordion variant="contained" radius="md" maw={600} w="100%" mt="lg">
-        <Accordion.Item value="other-options">
-          <Accordion.Control>
-            <Text fw={600}>Other Connection Options</Text>
-          </Accordion.Control>
-          <Accordion.Panel>
-            <Text size="sm" mb="md">
-              To get started, connect your account or use an ephemeral one.
+}}
+              >
+                {initializing ? 'Connecting to XMTP...' : client ? 'Connected to XMTP' : 'Connect to XMTP'}
+              </Button>
+            </span>
+          </Tooltip>
+          <Box mt="md" maw={600} w="100%">
+            <Accordion variant="separated">
+              <Accordion.Item value="other-options">
+                <Accordion.Control>Other connection options</Accordion.Control>
+                <Accordion.Panel>
+                  <Connect />
+                </Accordion.Panel>
+              </Accordion.Item>
+            </Accordion>
+          </Box>
+        </>
+      )}
+      {!gridOwnerAddress && (
+        <Paper withBorder p="md" radius="md" shadow="md" maw={600} w="100%" mt="lg">
+          <Stack gap="md" align="center">
+            <Box
+              display="flex"
+              style={{ alignItems: "center", justifyContent: "center" }}
+              mb="md"
+            >
+              <Image
+                src="/up-icon.jpeg"
+                alt="Universal Profile"
+                width={32}
+                height={32}
+                radius="sm"
+              />
+              <Text ml="md" fw={700} size="lg">Universal Profile</Text>
+            </Box>
+            <Text size="sm" ta="center">
+              Connect your Universal Profile to get started.
             </Text>
-            <Connect />
-          </Accordion.Panel>
-        </Accordion.Item>
-      </Accordion>
-
-      <Stack gap="lg" maw={600} w="100%" mt="lg">
-        <Title order={3}>Feedback</Title>
-        <Stack gap="md">
-          <Text>
-            Your feedback is incredibly important to the success of this tool.
-            If you find any bugs or have suggestions, please let us know by{" "}
-            <Anchor
-              href="https://github.com/xmtp/xmtp-js/issues/new/choose"
-              target="_blank">
-              filing an issue
-            </Anchor>{" "}
-            on GitHub.
-          </Text>
-        </Stack>
-      </Stack>
+          </Stack>
+        </Paper>
+      )}
     </Stack>
   );
 };
+
+export default Welcome;
