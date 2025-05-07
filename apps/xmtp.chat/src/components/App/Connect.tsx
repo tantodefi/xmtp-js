@@ -5,7 +5,7 @@ import { hexToUint8Array } from "uint8array-extras";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import type { WalletClient, Hex } from "viem";
 import { useAccount, useConnect, useConnectors, useWalletClient } from "wagmi";
-import { createClientUPProvider, type ClientUPProvider } from "@lukso/up-provider";
+import { upProviderSingleton } from '../../contexts/UpProviderContext';
 import { AccountCard } from "@/components/App/AccountCard";
 import { DisableAnalytics } from "@/components/App/DisableAnalytics";
 import { LoggingSelect } from "@/components/App/LoggingSelect";
@@ -73,10 +73,10 @@ export const Connect = () => {
     if (!luksoProviderRef.current) {
       try {
         console.log("Initializing LUKSO UP Provider from @lukso/up-provider");
-        const upProvider = createClientUPProvider();
+        const provider = upProviderSingleton;
 
         // Listen for account changes
-        upProvider.on('accountsChanged', (accounts: string[]) => {
+        provider.on('accountsChanged', (accounts: string[]) => {
           console.log('UP Provider accounts changed:', accounts);
         });
 

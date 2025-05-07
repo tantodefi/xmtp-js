@@ -22,6 +22,9 @@ interface UpProviderContextType {
 
 const UpProviderContext = createContext<UpProviderContextType | undefined>(undefined);
 
+// Export UP provider singleton for use everywhere
+export const upProviderSingleton: UPClientProvider | null = typeof window !== "undefined" ? createClientUPProvider() : null;
+
 export function useUpProvider() {
   const context = useContext(UpProviderContext);
   if (!context) {
@@ -37,18 +40,14 @@ interface UpProviderProps {
 export function UpProvider({ children }: UpProviderProps) {
   const [chainId, setChainId] = useState<number>(0);
   const [accounts, setAccounts] = useState<Array<`0x${string}`>>([]);
+  const accountsRef = React.useRef<Array<`0x${string}`>>([]);
   const [contextAccounts, setContextAccounts] = useState<Array<`0x${string}`>>([]);
   const [walletConnected, setWalletConnected] = useState(false);
   const [selectedAddress, setSelectedAddress] = useState<`0x${string}` | null>(null);
   const [isSearching, setIsSearching] = useState(false);
 
-  // Memoized provider instance
-  const provider = useMemo(() => {
-    if (typeof window !== "undefined") {
-      return createClientUPProvider();
-    }
-    return null;
-  }, []);
+  // Use the singleton in the component
+  const provider = upProviderSingleton;
 
   // Memoized wallet client
   const client = useMemo(() => {
@@ -61,7 +60,24 @@ export function UpProvider({ children }: UpProviderProps) {
     return null;
   }, [provider, chainId]);
 
+  // Polling for contextAccounts updates
   useEffect(() => {
+    if (!provider) return;
+    let prev = JSON.stringify(provider.contextAccounts || []);
+    const interval = setInterval(() => {
+      const curr = JSON.stringify(provider.contextAccounts || []);
+      if (curr !== prev) {
+        console.log('[UpProviderContext] Poll detected contextAccounts change:', provider.contextAccounts);
+        setContextAccounts([...provider.contextAccounts]);
+        prev = curr;
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [provider]);
+
+  useEffect(() => {
+    console.log('[UpProviderContext] useEffect for event registration running. Provider:', provider);
+
     let mounted = true;
     async function init() {
       try {
@@ -75,7 +91,7 @@ export function UpProvider({ children }: UpProviderProps) {
         const _contextAccounts = provider.contextAccounts;
         if (!mounted) return;
         setContextAccounts(_contextAccounts);
-        setWalletConnected(_accounts[0] != null && _contextAccounts[0] != null);
+        setWalletConnected(_accounts[0] != null);
       } catch (error) {
         console.error("[UpProviderContext] Error initializing provider:", error);
       }
@@ -83,13 +99,27 @@ export function UpProvider({ children }: UpProviderProps) {
     init();
     if (provider) {
       const accountsChanged = (_accounts: Array<`0x${string}`>) => {
-        setAccounts(_accounts);
-        setWalletConnected(_accounts[0] != null && contextAccounts[0] != null);
+        console.log('[UpProviderContext] accountsChanged event received:', _accounts);
+
+        setAccounts((prev) => {
+          if (JSON.stringify(prev) !== JSON.stringify(_accounts)) {
+            accountsRef.current = _accounts;
+            return [..._accounts];
+          }
+          accountsRef.current = _accounts;
+          return prev;
+        });
+        setWalletConnected(_accounts[0] != null);
       };
       const contextAccountsChanged = (_accounts: Array<`0x${string}`>) => {
-        setContextAccounts(_accounts);
-        setWalletConnected(accounts[0] != null && _accounts[0] != null);
+        console.log('[UpProviderContext] contextAccountsChanged event received:', _accounts);
+        if (provider) {
+          console.log('[UpProviderContext] provider.contextAccounts:', provider.contextAccounts);
+        }
+        setContextAccounts([..._accounts]); // force new array reference for reactivity
+        // Do NOT setWalletConnected here; only accountsChanged should control it
       };
+
       const chainChanged = (_chainId: number) => {
         setChainId(_chainId);
       };
