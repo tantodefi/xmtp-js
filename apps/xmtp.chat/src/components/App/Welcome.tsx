@@ -142,11 +142,24 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
 
       // 3. Open a conversation with the grid owner
       console.log(`Opening conversation with grid owner at XMTP address: ${xmtpAddress}`);
-      // Use the correct method to create a new conversation based on XMTP SDK version
-      // Cast to any to handle different versions of the XMTP SDK
-      const conversation = await (client.conversations as any).newConversation
-        ? await (client.conversations as any).newConversation(xmtpAddress)
-        : await (client.conversations as any).create(xmtpAddress);
+      
+      // Try different methods to create a conversation based on the SDK version
+      let conversation;
+      try {
+        // First try the newer API
+        console.log('Attempting to create conversation with newer API');
+        conversation = await client.conversations.newConversation(xmtpAddress);
+      } catch (e1) {
+        console.log('Newer API failed, trying alternative method', e1);
+        try {
+          // Then try an alternative method
+          conversation = await (client.conversations as any).create(xmtpAddress);
+        } catch (e2) {
+          console.log('Alternative method failed, trying direct start', e2);
+          // Finally try the most basic approach
+          conversation = await client.conversations.start(xmtpAddress);
+        }
+      }
       
       // 4. Send the message
       console.log('Sending message to grid owner');
