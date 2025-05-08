@@ -233,7 +233,7 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
                   }
                 }, 200); // Check more frequently
                 
-                // Set a final timeout - reduced from 10s to 5s
+                // Set a longer timeout for client creation
                 setTimeout(() => {
                   clearInterval(errorCheckInterval);
                   if (workerErrorOccurred) {
@@ -241,7 +241,7 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
                   } else {
                     reject(new Error('XMTP client creation timed out'));
                   }
-                }, 5000); // 5 second timeout instead of 10 seconds
+                }, 20000); // 20 second timeout to give more time for client creation
               })
             ]);
             

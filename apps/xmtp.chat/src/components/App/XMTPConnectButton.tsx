@@ -143,22 +143,42 @@ export function XMTPConnectButton({ onClick, disabled, walletConnected }: { onCl
             
             console.log("XMTPConnectButton: Created ephemeral signer, initializing XMTP client");
             
-            // Set up a timeout for client creation
-            const clientCreationPromise = initialize({ 
-              signer: ephemeralSigner, 
-              loggingLevel: 'debug',
-              env: 'dev'
-            });
+            console.log("XMTPConnectButton: Attempting XMTP client creation with retries");
             
-            // Create a timeout promise
-            const timeoutPromise = new Promise<undefined>((_, reject) => {
-              setTimeout(() => {
-                reject(new Error('Manual client creation timeout in XMTPConnectButton'));
-              }, 4000); // 4 second timeout
-            });
+            // Implement a retry mechanism for client creation
+            let newClient;
+            let attemptCount = 0;
+            const maxAttempts = 3;
             
-            // Race between client creation and timeout
-            const newClient = await Promise.race([clientCreationPromise, timeoutPromise]);
+            while (attemptCount < maxAttempts && !newClient) {
+              attemptCount++;
+              try {
+                console.log(`XMTPConnectButton: Client creation attempt ${attemptCount} of ${maxAttempts}`);
+                
+                // Initialize XMTP client with the ephemeral signer
+                // Use a longer timeout for the client creation
+                newClient = await initialize({ 
+                  signer: ephemeralSigner, 
+                  loggingLevel: 'debug',
+                  env: 'dev'
+                });
+                
+                if (newClient) {
+                  console.log(`XMTPConnectButton: Client created successfully on attempt ${attemptCount}`);
+                  break;
+                }
+              } catch (error) {
+                console.warn(`XMTPConnectButton: Client creation attempt ${attemptCount} failed:`, error);
+                
+                if (attemptCount < maxAttempts) {
+                  console.log(`XMTPConnectButton: Waiting before retry attempt ${attemptCount + 1}...`);
+                  // Wait before retrying (increasing delay with each attempt)
+                  await new Promise(resolve => setTimeout(resolve, attemptCount * 1000));
+                } else {
+                  console.error("XMTPConnectButton: All client creation attempts failed");
+                }
+              }
+            }
             
             if (newClient) {
               console.log("XMTPConnectButton: Client created successfully with ephemeral key", {
