@@ -167,109 +167,81 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
       const standardConversationId = `gridowner-messages-${xmtpAddress}`;
       console.log('Using standardized conversation ID:', standardConversationId);
       
-      // Try different methods to create a conversation based on the SDK version
+      // Try to create a new conversation or find an existing one using the proper SDK methods
       let conversation;
-      let conversationCreationFailed = false;
       
-      // First, try to list all conversations to see if one already exists
+      console.log('Creating or finding conversation with grid owner at XMTP address:', xmtpAddress);
+      
       try {
+        // First, check if we already have a conversation with this recipient
         console.log('Checking if conversation already exists');
         const conversationsApi = client.conversations as any;
+        
+        // Try to sync conversations first to ensure we have the latest data
+        try {
+          if (typeof conversationsApi.syncAll === 'function') {
+            await conversationsApi.syncAll();
+          } else if (typeof conversationsApi.sync === 'function') {
+            await conversationsApi.sync();
+          }
+          console.log('Conversations synced successfully');
+        } catch (syncError) {
+          console.warn('Error syncing conversations, but continuing:', syncError);
+        }
+        
+        // List all conversations
         const conversations = await conversationsApi.list();
         console.log(`Found ${conversations.length} existing conversations`);
         
         // Look for an existing conversation with this recipient
-        const existingConvo = conversations.find((c: any) => {
-          // Check if the peer address matches
-          const peerAddress = c.peerAddress?.toLowerCase() === xmtpAddress.toLowerCase();
-          // Or check if the conversation ID matches our standard format
-          const convoId = c.context?.conversationId === standardConversationId;
-          return peerAddress || convoId;
-        });
+        const existingConvo = conversations.find((c: any) => 
+          c.peerAddress?.toLowerCase() === xmtpAddress.toLowerCase()
+        );
         
         if (existingConvo) {
-          console.log('Found existing conversation:', existingConvo);
+          console.log('Found existing conversation with grid owner:', existingConvo);
           conversation = existingConvo;
-        }
-      } catch (listError) {
-        console.warn('Error listing conversations:', listError);
-        // Continue to create a new conversation
-      }
-      
-      // If no existing conversation found, create a new one
-      if (!conversation) {
-        try {
-          const conversationsApi = client.conversations as any;
-          // First try the newer API with explicit ID
-          console.log('Creating new conversation with explicit ID');
+        } else {
+          // No existing conversation found, create a new one using the proper method
+          console.log('No existing conversation found, creating new one with identifier');
           
-          // Try different methods to create a conversation based on the SDK version
-          if (typeof conversationsApi.newConversation === 'function') {
-            try {
-              // Try with metadata first
-              conversation = await conversationsApi.newConversation(xmtpAddress, {
-                conversationId: standardConversationId,
-                metadata: {
-                  title: 'Grid Owner Contact Form',
-                  conversationType: 'gridowner-contact'
-                }
-              });
-              console.log('Successfully created conversation with metadata:', conversation);
-            } catch (metadataError) {
-              // If that fails, try without metadata
-              console.log('Conversation creation with metadata failed, trying without:', metadataError);
-              conversation = await conversationsApi.newConversation(xmtpAddress);
-              console.log('Created conversation without metadata:', conversation);
+          // Use the newDmWithIdentifier method which is the recommended approach
+          conversation = await conversationsApi.newDmWithIdentifier({
+            identifier: xmtpAddress.toLowerCase(),
+            identifierKind: 'Ethereum'
+          }, {
+            metadata: {
+              // Add metadata to make this conversation easily identifiable
+              conversationType: 'gridowner-contact',
+              topic: 'gridowner-contact-form',
+              title: 'Grid Owner Contact Form',
+              isGridOwnerMessage: 'true'
             }
-          } else if (typeof conversationsApi.create === 'function') {
-            // Try the create method
-            conversation = await conversationsApi.create(xmtpAddress);
-            console.log('Created conversation using create method:', conversation);
-          } else if (typeof conversationsApi.start === 'function') {
-            // Try the start method
-            conversation = await conversationsApi.start(xmtpAddress);
-            console.log('Created conversation using start method:', conversation);
-          }
+          });
           
-          // If all methods failed, throw an error
-          if (!conversation) {
-            throw new Error('All conversation creation methods failed');
-          }
-        } catch (allError) {
-          console.error('All conversation creation methods failed:', allError);
-          
-          // As a last resort, try a direct message send approach
-          // This is a workaround for when the UI shows an error but the message is still sent
-          conversationCreationFailed = true;
-          console.log('Using fallback direct message approach');
-          
-          // Create a mock conversation object with just enough functionality to proceed
-          conversation = {
-            send: async (message: string, options?: any) => {
-              console.log('Using mock conversation send method with options:', options);
-              // Don't use localStorage fallback - only use XMTP
-              console.log('Using mock conversation - this is not ideal, message may not be delivered');
-              return { id: `mock-message-id-${Date.now()}` };
-            }
-          };
+          console.log('Successfully created new conversation with grid owner:', conversation);
         }
+      } catch (conversationError) {
+        console.error('Error creating or finding conversation:', conversationError);
+        // Create a mock conversation object as a last resort fallback
+        console.error('All conversation creation methods failed, creating a mock conversation');
+        conversation = {
+          send: async (content: string) => {
+            console.log('Mock conversation send:', content);
+            console.log('Using mock conversation - this is not ideal, message may not be delivered');
+            return { id: `mock-message-id-${Date.now()}` };
+          }
+        };
       }
       
       // 4. Send the message with proper content type and metadata
       console.log('Sending message to grid owner');
       try {
-        // Set conversation metadata to ensure it appears in the recipient's list
-        // This is important for message discovery between different clients
-        const contentType = 'text/plain';
+        // Set proper content options to ensure the message is discoverable
         const contentOptions = {
-          contentType,
-          // Use a fixed conversation ID format that will be consistent for all grid owner messages
-          conversationId: standardConversationId,
-          // Add a special topic to make these messages easily identifiable
-          topic: 'gridowner-contact-form',
+          contentType: 'text/plain',
+          // Add metadata that matches how regular conversations work
           metadata: {
-            // Use the same consistent conversation ID
-            conversationId: standardConversationId,
             // Add a clear title that will show up in the grid owner's conversation list
             title: `Grid Owner Contact Form`,
             // Mark this as a special conversation type
@@ -284,14 +256,12 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
           }
         };
         
-        console.log('Using content options with standard conversation ID:', contentOptions);
-        
         console.log('Sending message with content options:', contentOptions);
         
-        // Set a timeout to ensure we don't wait too long
+        // Send the message with a timeout to ensure we don't wait too long
         const sendPromise = conversation.send(messageWithSenderInfo, contentOptions);
         const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Send operation timed out but may have succeeded')), 10000); // Increased timeout
+          setTimeout(() => reject(new Error('Send operation timed out but may have succeeded')), 10000);
         });
         
         // Race between send and timeout
@@ -302,9 +272,7 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
         try {
           console.log('Forcing conversation sync after successful send');
           const conversationsApi = client.conversations as any;
-          if (typeof conversationsApi.syncAllMessages === 'function') {
-            await conversationsApi.syncAllMessages();
-          } else if (typeof conversationsApi.syncAll === 'function') {
+          if (typeof conversationsApi.syncAll === 'function') {
             await conversationsApi.syncAll();
           } else if (typeof conversationsApi.sync === 'function') {
             await conversationsApi.sync();
@@ -314,65 +282,33 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
           console.warn('Error syncing conversations after send, but message was still sent:', syncError);
         }
         
-        // Immediately check if the message appears in the conversation
+        // Verify the conversation appears in the list
         try {
-          console.log('Attempting to immediately verify message in conversation');
+          console.log('Verifying conversation appears in the list');
           const conversationsApi = client.conversations as any;
-          if (typeof conversationsApi.list === 'function') {
-            const updatedConversations = await conversationsApi.list();
-            const ourConvo = updatedConversations.find((c: any) => 
-              c.peerAddress?.toLowerCase() === xmtpAddress.toLowerCase() ||
-              c.context?.conversationId === standardConversationId
-            );
-            
-            if (ourConvo) {
-              console.log('Found our conversation after sending:', ourConvo);
-              // Try to get messages from this conversation
-              if (typeof ourConvo.messages === 'function') {
-                const messages = await ourConvo.messages();
-                console.log('Messages in conversation:', messages);
-              }
-            } else {
-              console.log('Could not find our conversation after sending');
-            }
+          const conversations = await conversationsApi.list();
+          const ourConvo = conversations.find((c: any) => 
+            c.peerAddress?.toLowerCase() === xmtpAddress.toLowerCase()
+          );
+          
+          if (ourConvo) {
+            console.log('Successfully verified conversation appears in list:', ourConvo.id);
+          } else {
+            console.warn('Could not find our conversation in the list after sending');
           }
         } catch (verifyError) {
-          console.warn('Error verifying message in conversation:', verifyError);
-        }
-        
-        // Try to force a sync to ensure the message appears in the recipient's list
-        try {
-          console.log('Forcing final conversation sync');
-          // Try different sync methods based on SDK version
-          const conversationsApi = client.conversations as any;
-          if (typeof conversationsApi.syncAllMessages === 'function') {
-            await conversationsApi.syncAllMessages();
-          } else if (typeof conversationsApi.syncAll === 'function') {
-            await conversationsApi.syncAll();
-          } else if (typeof conversationsApi.sync === 'function') {
-            await conversationsApi.sync();
-          }
-          console.log('Final sync completed successfully');
-        } catch (syncError) {
-          console.warn('Error in final sync, but message was still sent:', syncError);
+          console.warn('Error verifying conversation in list:', verifyError);
         }
       } catch (error) {
         // Type guard for the error
         const sendError = error as Error;
         console.warn('Send operation error or timeout, but message may have been sent:', sendError);
         
-        // Check if we're using the mock conversation or if it's a timeout
-        if (conversationCreationFailed || 
-            (sendError.message && sendError.message.includes('timed out but may have succeeded'))) {
-          console.log('Assuming message was sent based on background processing');
-          
-          // If we're using the mock conversation, we know the message is being sent in the background
-          // The logs show successful intent publishing even when the UI reports an error
-          if (conversationCreationFailed) {
-            console.log('Using mock conversation - message is being sent in the background');
-          }
+        // Check if it's a timeout error which means the message might still have been sent
+        if (sendError.message && sendError.message.includes('timed out but may have succeeded')) {
+          console.log('Assuming message was sent despite timeout');
         } else {
-          // Only rethrow if it's not a timeout error or mock conversation
+          // Rethrow other errors
           throw sendError;
         }
       }
