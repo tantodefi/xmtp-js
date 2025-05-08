@@ -295,37 +295,37 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
       // 4. Send the message with proper content type and metadata
       console.log('Sending message to grid owner');
       try {
-        // Set proper content options to ensure the message is discoverable
-        const contentOptions = {
-          contentType: 'text/plain',
-          // Use the standardized conversation ID to ensure messages are grouped correctly
+        // The XMTP SDK expects content options in a specific format
+        // For most SDK versions, we should only pass the content type and content
+        console.log('Preparing to send message to grid owner');
+        
+        // Store the metadata we want to associate with this message
+        const messageMetadata = {
+          // Use the same consistent conversation ID
           conversationId: standardConversationId,
-          // Add a topic for easier filtering
-          topic: 'gridowner-contact-form',
-          // Add comprehensive metadata that matches how regular conversations work
-          metadata: {
-            // Use the same consistent conversation ID
-            conversationId: standardConversationId,
-            // Add a clear title that will show up in the grid owner's conversation list
-            title: `Grid Owner Contact Form`,
-            // Mark this as a special conversation type
-            conversationType: 'gridowner-contact',
-            // Add sender/recipient info
-            sender: upAddress || 'anonymous',
-            recipient: xmtpAddress,
-            // Add timestamp for sorting
-            timestamp: Date.now().toString(),
-            // Add additional metadata to help with discovery
-            isGridOwnerMessage: 'true',
-            appVersion: '1.0',
-            messageType: 'contact-form'
-          }
+          // Add a clear title that will show up in the grid owner's conversation list
+          title: `Grid Owner Contact Form`,
+          // Mark this as a special conversation type
+          conversationType: 'gridowner-contact',
+          // Add sender/recipient info
+          sender: upAddress || 'anonymous',
+          recipient: xmtpAddress,
+          // Add timestamp for sorting
+          timestamp: Date.now().toString(),
+          // Add additional metadata to help with discovery
+          isGridOwnerMessage: 'true',
+          appVersion: '1.0',
+          messageType: 'contact-form'
         };
         
-        console.log('Sending message with content options:', contentOptions);
+        // Add metadata to the message content itself
+        const messageWithMetadata = `${messageWithSenderInfo}\n\n---\nMetadata: ${JSON.stringify(messageMetadata)}`;
+        
+        console.log('Sending plain text message with embedded metadata');
         
         // Send the message with a timeout to ensure we don't wait too long
-        const sendPromise = conversation.send(messageWithSenderInfo, contentOptions);
+        // Most XMTP SDK versions expect just the content for text messages
+        const sendPromise = conversation.send(messageWithMetadata);
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => reject(new Error('Send operation timed out but may have succeeded')), 10000);
         });
