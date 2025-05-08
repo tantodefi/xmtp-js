@@ -9,6 +9,7 @@ import { useXMTP } from "@/contexts/XMTPContext";
 import { useUpProvider } from "@/contexts/UpProviderContext";
 import { Tooltip, ActionIcon, CopyButton, Group } from "@mantine/core";
 import { IconInfoCircle, IconCopy, IconRefresh } from "@tabler/icons-react";
+import * as ethers from "ethers";
 
 // =========================
 // ANONYMOUS MESSAGE FORM
@@ -29,42 +30,139 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
   // Helper: is the address empty or default zero?
   const isAddressEmpty = !gridOwnerAddress || gridOwnerAddress === '0x0000000000000000000000000000000000000000';
 
-  // --- UI: Visual divider and label for clarity ---
-  // (This can be moved into the JSX below if you want a more prominent separation)
-  // Example usage in JSX:
-  // <Divider my="xl" label="Anonymous Message to Grid Owner" labelPosition="center" />
-
-
   // Handler to receive XMTP address from LuksoProfile
   const handleXmtpAddressFound = (address: string) => {
     setXmtpAddress(address);
     setProfileLoaded(true);
   };
+
   // If profile loads but no address found
   const handleProfileLoaded = () => {
     setProfileLoaded(true);
   };
 
-  // TODO: In production, this handler should send the message to the grid owner via XMTP using an ephemeral client.
-// For now, we just show a success message regardless of actual send, since the feature is not yet working end-to-end.
-const handleSubmit = async (e: React.FormEvent) => {
+  // Send a message to the grid owner via XMTP using an ephemeral client
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSending(true);
     setError(null);
-    // --- Placeholder success for demo/testing ---
-    setTimeout(() => {
+
+    try {
+      // Make sure we have the grid owner's XMTP address
+      if (!xmtpAddress) {
+        throw new Error('Grid owner\'s XMTP address not found');
+      }
+
+      // Get the current UP address if available
+      let senderInfo = 'Anonymous sender';
+      let upAddress: string | undefined;
+
+      try {
+        // Try to get the UP address from the LUKSO provider
+        if (window.lukso && typeof window.lukso.request === 'function') {
+          const accounts = await window.lukso.request({ method: 'eth_requestAccounts' });
+          if (accounts && accounts.length > 0) {
+            upAddress = accounts[0];
+            senderInfo = `Message from UP: ${upAddress}`;
+
+            // Try to get the UP profile name if available
+            try {
+              // Use ethers v5 compatible API
+              const provider = new ethers.JsonRpcProvider('https://rpc.mainnet.lukso.network/');
+
+              // Make sure upAddress is defined before using it
+              if (upAddress) {
+                const erc725Contract = new ethers.Contract(
+                  upAddress,
+                  [
+                    'function getData(bytes32[] memory _keys) public view returns (bytes[] memory values)'
+                  ],
+                  provider
+                );
+
+                // Get the LSP3Profile data
+                const profileKey = '0x5ef83ad9559033e6e941db7d7c495acdce616347d28e90c7ce47cbfcfcad3bc5';
+                const result = await erc725Contract.getData([profileKey]);
+
+                if (result && result.length > 0 && result[0] !== '0x') {
+                  try {
+                    // Try to parse the profile data
+                    const profileData = JSON.parse(Buffer.from(result[0].slice(2), 'hex').toString());
+                    if (profileData && profileData.LSP3Profile && profileData.LSP3Profile.name) {
+                      senderInfo = `Message from ${profileData.LSP3Profile.name} (${upAddress})`;
+                    }
+                  } catch (parseError) {
+                    console.warn('Could not parse UP profile data', parseError);
+                  }
+                }
+              }
+            } catch (profileError) {
+              console.warn('Could not fetch UP profile data', profileError);
+            }
+          }
+        }
+      } catch (upError) {
+        console.warn('Could not get UP address', upError);
+        // Continue with anonymous message
+      }
+
+      // Prepare the message with sender info
+      const messageWithSenderInfo = `${message}\n\n---\n${senderInfo}\nSent via XMTP.chat`;
+
+      // 1. Create an ephemeral signer for XMTP
+      console.log('Creating ephemeral signer for message to grid owner');
+      const { createProxyEphemeralSigner } = await import('@/helpers/createSigner');
+
+      // Use the UP address if available, otherwise generate a random one
+      const signerAddress = upAddress ? upAddress as `0x${string}` :
+        `0x${Array.from(crypto.getRandomValues(new Uint8Array(20)))
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('')}` as `0x${string}`;
+
+      const ephemeralSigner = createProxyEphemeralSigner(signerAddress);
+
+      // 2. Create an ephemeral XMTP client
+      console.log('Creating ephemeral XMTP client');
+      const { Client } = await import('@xmtp/browser-sdk');
+
+      // Have the user sign a message to authorize the ephemeral client
+      if (upAddress && window.lukso && typeof window.lukso.request === 'function') {
+        const authMessage = `I am authorizing this app to send a message on my behalf via XMTP.\n\nThis does not give the app access to my Universal Profile or any assets.\n\nTimestamp: ${Date.now()}`;
+
+        console.log('Requesting user to sign authorization message');
+        await window.lukso.request({
+          method: 'personal_sign',
+          params: [authMessage, upAddress]
+        });
+        console.log('User signed authorization message');
+      }
+
+      const client = await Client.create(ephemeralSigner, { env: 'dev' });
+      console.log('Ephemeral XMTP client created successfully');
+
+      // 3. Open a conversation with the grid owner
+      console.log(`Opening conversation with grid owner at XMTP address: ${xmtpAddress}`);
+      // Use the correct method to create a new conversation based on XMTP SDK version
+      // Cast to any to handle different versions of the XMTP SDK
+      const conversation = await (client.conversations as any).newConversation
+        ? await (client.conversations as any).newConversation(xmtpAddress)
+        : await (client.conversations as any).create(xmtpAddress);
+      
+      // 4. Send the message
+      console.log('Sending message to grid owner');
+      await conversation.send(messageWithSenderInfo);
+      console.log('Message sent successfully');
+
+      // 5. Show success message
       setSent(true);
-      setMessage("");
+      setMessage('');
+    } catch (error) {
+      console.error('Error sending message to grid owner:', error);
+      setError(`Failed to send message: ${(error as Error).message || 'Unknown error'}`);
+    } finally {
       setSending(false);
-    }, 800);
-    // ---
-    // Intended future logic:
-    // 1. Create an ephemeral XMTP client
-    // 2. Open a DM with the grid owner's XMTP address
-    // 3. Send the message
-    // 4. Show success or error based on actual result
-    // See previous implementation for reference.
-};
+    }
+  };
 
   if (sent) {
     return <Text color="green">Message sent to grid owner!</Text>;
