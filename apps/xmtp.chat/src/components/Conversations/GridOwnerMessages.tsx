@@ -1,144 +1,142 @@
-import { Box, Button, Group, Text, Title, Paper } from "@mantine/core";
+import { Box, Button, Group, Text, Title, Paper, Badge, Stack } from "@mantine/core";
 import { useEffect, useState } from "react";
 import { useXMTP } from "@/contexts/XMTPContext";
 import { useNavigate } from "react-router-dom";
 import type { Conversation } from "@xmtp/browser-sdk";
+
+// Define a type for the stored messages
+type StoredMessage = {
+  id: string;
+  content: string;
+  timestamp: string;
+  sender: string;
+  recipient: string;
+  conversationId: string;
+};
 
 export const GridOwnerMessages: React.FC = () => {
   const { client } = useXMTP();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [gridOwnerConversation, setGridOwnerConversation] = useState<Conversation | null>(null);
-  const [hasChecked, setHasChecked] = useState(false);
+  const [storedMessages, setStoredMessages] = useState<StoredMessage[]>([]);
+  const [hasMessages, setHasMessages] = useState(false);
+  
+  // Check for stored messages in localStorage
+  useEffect(() => {
+    const checkStoredMessages = () => {
+      try {
+        const messagesJson = localStorage.getItem('gridOwnerMessages');
+        if (messagesJson) {
+          const messages = JSON.parse(messagesJson);
+          console.log('GridOwnerMessages: Found stored messages:', messages);
+          setStoredMessages(messages);
+          setHasMessages(messages.length > 0);
+        }
+      } catch (error) {
+        console.error('GridOwnerMessages: Error reading stored messages:', error);
+      }
+    };
+    
+    checkStoredMessages();
+    
+    // Set up an interval to check for new messages
+    const intervalId = setInterval(checkStoredMessages, 5000);
+    return () => clearInterval(intervalId);
+  }, []);
 
-  // Standard conversation ID that matches what we use in the grid owner form
-  // Get the client's address from the signer identifier
-  const clientAddress = client ? (client as any).address || (client as any).getIdentifier?.()?.identifier : null;
-  const standardConversationId = clientAddress 
-    ? `gridowner-messages-${clientAddress}`
-    : null;
-
-  // Function to check for grid owner messages
+  // Function to check for grid owner messages directly in the XMTP network
   const checkForGridOwnerMessages = async () => {
-    if (!client || !standardConversationId) {
-      console.log("GridOwnerMessages: No client or standardConversationId", { client: !!client, standardConversationId });
+    if (!client) {
+      console.log("GridOwnerMessages: No client available");
       return;
     }
     
     setLoading(true);
     try {
-      console.log("GridOwnerMessages: Checking for grid owner messages with ID:", standardConversationId);
-      console.log("GridOwnerMessages: Client address:", clientAddress);
+      console.log("GridOwnerMessages: Syncing conversations...");
       
-      // First try to sync all conversations to make sure we have the latest data
-      console.log("GridOwnerMessages: Syncing all conversations...");
-      await client.conversations.syncAll();
-      console.log("GridOwnerMessages: Sync completed");
+      // Try different sync methods based on SDK version
+      try {
+        // Use type assertion to handle different versions of the SDK
+        const conversationsApi = client.conversations as any;
+        if (typeof conversationsApi.syncAllMessages === 'function') {
+          await conversationsApi.syncAllMessages();
+        } else if (typeof conversationsApi.syncAll === 'function') {
+          await conversationsApi.syncAll();
+        } else if (typeof conversationsApi.sync === 'function') {
+          await conversationsApi.sync();
+        }
+        console.log("GridOwnerMessages: Sync completed successfully");
+      } catch (syncError) {
+        console.warn("GridOwnerMessages: Error during sync, but continuing:", syncError);
+      }
       
       // Get all conversations
-      console.log("GridOwnerMessages: Listing all conversations...");
       const allConversations = await client.conversations.list();
       console.log("GridOwnerMessages: Found conversations:", allConversations.length);
       
-      // Log all conversation metadata for debugging
-      allConversations.forEach((convo, index) => {
-        console.log(`GridOwnerMessages: Conversation ${index}:`, {
-          id: convo.id,
-          topic: (convo as any).topic,
-          peerAddress: (convo as any).peerAddress,
-          metadata: convo.metadata,
-          context: (convo as any).context
-        });
-      });
-      
-      // Look for conversations with our special topic or ID
+      // Look for grid owner conversations using multiple criteria
       const gridOwnerConvos = allConversations.filter(convo => {
-        // Check if this conversation has our special ID or topic
-        const metadata = convo.metadata as any;
-        const context = (convo as any).context;
-        return (
-          (metadata && metadata.conversationId === standardConversationId) ||
-          (metadata && metadata.topic === 'gridowner-contact-form') ||
-          (context && context.conversationId === standardConversationId)
-        );
+        // Use type assertion to safely access properties that might not exist in the type definition
+        const convoAny = convo as any;
+        // Check conversation metadata
+        const metadata = (convoAny.metadata || {}) as Record<string, any>;
+        const context = (convoAny.context || {}) as Record<string, any>;
+        
+        // Check for our special topic or conversation ID pattern
+        const hasTopic = metadata.topic === 'gridowner-contact-form';
+        const hasType = metadata.conversationType === 'gridowner-contact';
+        const hasGridOwnerFlag = metadata.isGridOwnerMessage === 'true';
+        
+        // Check for our standard conversation ID format
+        const convoIdPattern = /^gridowner-messages-0x[a-fA-F0-9]{40}$/;
+        const matchesIdPattern = typeof context.conversationId === 'string' && 
+                               convoIdPattern.test(context.conversationId);
+        
+        return hasTopic || hasType || hasGridOwnerFlag || matchesIdPattern;
       });
       
-      console.log("Found grid owner conversations:", gridOwnerConvos.length);
+      console.log("Found grid owner conversations:", gridOwnerConvos.length, gridOwnerConvos);
       
       if (gridOwnerConvos.length > 0) {
         setGridOwnerConversation(gridOwnerConvos[0]);
+        console.log("Set active grid owner conversation:", gridOwnerConvos[0]);
       }
     } catch (error) {
       console.error("Error checking for grid owner messages:", error);
     } finally {
       setLoading(false);
-      setHasChecked(true);
     }
   };
 
   // Check for grid owner messages when the component mounts
   useEffect(() => {
-    if (client && !hasChecked) {
+    if (client) {
       checkForGridOwnerMessages();
     }
-  }, [client, hasChecked]);
+  }, [client]);
   
-  // Also check when clientAddress changes
-  useEffect(() => {
-    if (client && clientAddress && hasChecked) {
-      console.log("GridOwnerMessages: Client address changed, rechecking messages");
+  // Refresh function to manually check for messages
+  const refreshMessages = () => {
+    if (client) {
       checkForGridOwnerMessages();
     }
-  }, [clientAddress]);
+    
+    // Also refresh stored messages
+    try {
+      const messagesJson = localStorage.getItem('gridOwnerMessages');
+      if (messagesJson) {
+        const messages = JSON.parse(messagesJson);
+        setStoredMessages(messages);
+        setHasMessages(messages.length > 0);
+      }
+    } catch (error) {
+      console.error('Error refreshing stored messages:', error);
+    }
+  };
 
-  // Always show the component for debugging
-  if (!client || !standardConversationId) {
-    return (
-      <Paper p="md" mb="md" withBorder>
-        <Title order={5}>Grid Owner Messages (Debug)</Title>
-        <Text color="red">No client or conversation ID available</Text>
-        <Text size="sm">Client: {client ? 'Available' : 'Not available'}</Text>
-        <Text size="sm">Conversation ID: {standardConversationId || 'Not available'}</Text>
-        <Text size="sm">Client Address: {clientAddress || 'Not available'}</Text>
-        <Button size="xs" onClick={() => console.log('Current client:', client)}>Log Client</Button>
-      </Paper>
-    );
-  }
-  
-  // If we haven't checked for messages yet, show a loading state
-  if (!hasChecked) {
-    return (
-      <Paper p="md" mb="md" withBorder>
-        <Title order={5}>Grid Owner Messages</Title>
-        <Text>Checking for grid owner messages...</Text>
-        <Text size="sm">Conversation ID: {standardConversationId}</Text>
-        <Text size="sm">Client Address: {clientAddress}</Text>
-      </Paper>
-    );
-  }
-
-  // If we have a grid owner conversation, show it
-  if (gridOwnerConversation) {
-    return (
-      <Paper p="md" mb="md" withBorder>
-        <Group justify="space-between" mb="xs">
-          <Title order={5}>Grid Owner Contact Form Messages</Title>
-          <Button 
-            size="xs" 
-            variant="light"
-            onClick={() => navigate(`/conversations/${gridOwnerConversation.id}`)}
-          >
-            View Messages
-          </Button>
-        </Group>
-        <Text size="sm" color="dimmed">
-          Messages sent through the grid owner contact form will appear here.
-        </Text>
-      </Paper>
-    );
-  }
-
-  // If we don't have a grid owner conversation, show a message
+  // Render the component with both XMTP conversation messages and localStorage messages
   return (
     <Paper p="md" mb="md" withBorder>
       <Group justify="space-between" mb="xs">
@@ -146,15 +144,63 @@ export const GridOwnerMessages: React.FC = () => {
         <Button 
           size="xs" 
           variant="light"
-          onClick={checkForGridOwnerMessages}
+          onClick={refreshMessages}
         >
           Refresh
         </Button>
       </Group>
-      <Text>No grid owner messages found yet.</Text>
-      <Text size="sm" color="dimmed" mt="xs">
-        Messages sent through the grid owner contact form will appear here.
-      </Text>
+      
+      {loading && (
+        <Text size="sm" color="dimmed" mb="sm">Checking for messages...</Text>
+      )}
+      
+      {/* Display XMTP conversation if found */}
+      {gridOwnerConversation && (
+        <Box mb="md">
+          <Group>
+            <Badge color="green" mb="xs">XMTP Conversation</Badge>
+            <Button 
+              size="xs" 
+              variant="light"
+              onClick={() => navigate(`/conversations/${gridOwnerConversation.id}`)}
+            >
+              View Messages
+            </Button>
+          </Group>
+          <Text size="sm">
+            Found a conversation with grid owner messages. Click above to view the full conversation.
+          </Text>
+        </Box>
+      )}
+      
+      {/* Display localStorage messages if any */}
+      {storedMessages.length > 0 ? (
+        <Box>
+          <Badge color="blue" mb="xs">Stored Messages ({storedMessages.length})</Badge>
+          <Stack gap="xs">
+            {storedMessages.map((msg, index) => (
+              <Paper key={msg.id || index} p="xs" withBorder>
+                <Text size="sm" fw={500}>{msg.content}</Text>
+                <Group justify="space-between" mt="xs">
+                  <Text size="xs" color="dimmed">From: {msg.sender.substring(0, 8)}...</Text>
+                  <Text size="xs" color="dimmed">
+                    {new Date(parseInt(msg.timestamp)).toLocaleString()}
+                  </Text>
+                </Group>
+              </Paper>
+            ))}
+          </Stack>
+        </Box>
+      ) : (
+        <Box>
+          {!gridOwnerConversation && !loading && (
+            <Text>No grid owner messages found yet.</Text>
+          )}
+          <Text size="sm" color="dimmed" mt="xs">
+            Messages sent through the grid owner contact form will appear here.
+          </Text>
+        </Box>
+      )}
     </Paper>
   );
 };
