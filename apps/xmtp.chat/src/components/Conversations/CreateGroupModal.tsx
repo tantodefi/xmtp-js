@@ -1,7 +1,7 @@
 import { Accordion, Badge, Button, Group, Stack, Text } from "@mantine/core";
 import { GroupPermissionsOptions, type Client } from "@xmtp/browser-sdk";
 import { useCallback, useMemo, useState } from "react";
-import { useNavigate, useOutletContext } from "react-router";
+import { useNavigate, useOutletContext } from "react-router-dom";
 import { Members } from "@/components/Conversation/Members";
 import { Metadata } from "@/components/Conversation/Metadata";
 import {

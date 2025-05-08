@@ -1,7 +1,7 @@
 import { Button, Group } from "@mantine/core";
 import { Group as XmtpGroup } from "@xmtp/browser-sdk";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { useNavigate, useOutletContext } from "react-router";
+import { useNavigate, useOutletContext } from "react-router-dom";
 import type { ConversationOutletContext } from "@/components/Conversation/ConversationOutletContext";
 import { Metadata } from "@/components/Conversation/Metadata";
 import { Modal } from "@/components/Modal";

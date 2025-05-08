@@ -1,4 +1,5 @@
 import { Anchor, Stack, Text, Title, useMatches, Button, Divider, Box, Paper, Image, Accordion } from "@mantine/core";
+import { XMTPConnectButton } from "./XMTPConnectButton";
 import { useNavigate } from "react-router-dom";
 import { useSettings } from "@/hooks/useSettings";
 import { Connect } from "./Connect";
@@ -292,94 +293,10 @@ useEffect(() => {
         <>
           <MessageGridOwnerForm gridOwnerAddress={gridOwnerAddress} />
           <Paper withBorder p="md" radius="md" shadow="sm" w="100%" maw={500} mt="md">
-            <Tooltip label={accounts[0] ? (client ? 'Already connected to XMTP' : 'Signing into XMTP with a Proxy Ephemeral Signer') : 'Connect your wallet first'} disabled={!!accounts[0] && !client}>
-              <span>
-                <Button
-                  variant="light"
-                  color="dark"
-                  fullWidth
-                  leftSection={<Image src="/xmtp-icon.png" alt="XMTP" width={24} height={24} radius="sm" />}
-                  size="md"
-                  radius="md"
-                  style={{ fontWeight: 600, fontSize: 16, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}
-                  loading={initializing}
-                  disabled={!accounts[0] || !!client || initializing}
-                  onClick={async () => {
-                    setRenderError(null); // clear previous errors
-                    function handleXmtpError(err: any) {
-                      if (err?.name === "SwitchChainNotSupportedError" || (typeof err?.message === 'string' && err.message.includes('does not support programmatic chain switching'))) {
-                        setRenderError(new Error('Universal Profile does not support programmatic chain switching. Please switch to the correct network in your wallet and try again.'));
-                      } else {
-                        setRenderError(err instanceof Error ? err : new Error(String(err)));
-                      }
-                    }
-                    try {
-                      // Clean up any previous XMTP session state
-                      try {
-                        localStorage.removeItem("xmtp.context.autoConnect");
-                        sessionStorage.removeItem("xmtp.auth.status");
-                      } catch (e) {
-                        // ignore
-                      }
-                      // --- Universal Profile (UP) wallet flow ---
-                      // If UP, use proxy ephemeral signer as in Connect.tsx
-                      const isUP = window.lukso && contextAccounts && contextAccounts.length > 0;
-                      if (isUP) {
-                        const upAddress = contextAccounts[0].toLowerCase();
-                        // Generate or load persistent ephemeral key for this UP address
-                        const luksoAddressKey = `lukso_ephemeral_key_${upAddress}`;
-                        let tempPrivateKey = localStorage.getItem(luksoAddressKey);
-                        if (!tempPrivateKey) {
-                          tempPrivateKey = (await import('viem/accounts')).generatePrivateKey();
-                          localStorage.setItem(luksoAddressKey, tempPrivateKey);
-                        }
-                        // Use proxy ephemeral signer
-                        const { createProxyEphemeralSigner } = await import('@/helpers/createSigner');
-                        const signer = createProxyEphemeralSigner(upAddress);
-                        await initialize({ signer })
-                          .catch((err: any) => {
-                            handleXmtpError(err);
-                            throw err;
-                          });
-                        // On success, go to /conversations
-                        navigate('/conversations', { replace: true });
-                        return;
-                      }
-                      // --- Non-UP wallet fallback (EOA, injected, etc) ---
-                      let signer = undefined;
-                      function isXMTPCompatibleSigner(obj: any): obj is { getAddress: () => Promise<string>; signMessage: (msg: string | Uint8Array) => Promise<string>; } {
-                        return obj && typeof obj.getAddress === 'function' && typeof obj.signMessage === 'function';
-                      }
-                      if (window.ethereum && isXMTPCompatibleSigner(window.ethereum)) {
-                        signer = window.ethereum;
-                      }
-                      if (!signer && contextAccounts && contextAccounts.length > 0) {
-                        const candidate = contextAccounts[0];
-                        if (isXMTPCompatibleSigner(candidate)) {
-                          signer = candidate;
-                        }
-                      }
-                      if (!signer) {
-                        setRenderError(new Error('No compatible wallet signer found. Please ensure your wallet supports XMTP.'));
-                        return;
-                      }
-                      await initialize({ signer })
-                        .catch((err: any) => {
-                          handleXmtpError(err);
-                          throw err;
-                        });
-                      navigate('/conversations', { replace: true });
-                    } catch (err: any) {
-                      handleXmtpError(err);
-                    } finally {
-                      // No need to set initializing, handled by useXMTP
-                    }
-                  }}
-                >
-                  {initializing ? 'Connecting to XMTP...' : client ? 'Connected to XMTP' : 'Connect to XMTP'}
-                </Button>
-              </span>
-            </Tooltip>
+            <XMTPConnectButton 
+              disabled={!accounts[0] || !!client || initializing} 
+              walletConnected={!!accounts[0]} 
+            />
             <Accordion w="100%" mt="md">
               <Accordion.Item value="other-options">
                 <Accordion.Control>Other connection options</Accordion.Control>

@@ -1,6 +1,6 @@
 import type { Conversation } from "@xmtp/browser-sdk";
 import { useMemo, type ComponentProps } from "react";
-import { useParams } from "react-router";
+import { useParams } from "react-router-dom";
 import { Virtuoso } from "react-virtuoso";
 import { ConversationCard } from "./ConversationCard";
 import classes from "./ConversationList.module.css";

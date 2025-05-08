@@ -1,5 +1,5 @@
 import { Button, Stack, Text, Title, Divider, Box } from "@mantine/core";
-import { useNavigate } from "react-router";
+import { useNavigate } from "react-router-dom";
 import { useEffect, useState, useCallback } from "react";
 import { LuksoProfile } from "@/components/LuksoProfile";
 

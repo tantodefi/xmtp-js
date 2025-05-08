@@ -1,7 +1,7 @@
 import { Badge, Box, Burger, Button, Flex, Group, Text, Image } from "@mantine/core";
 import type { Client } from "@xmtp/browser-sdk";
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate } from "react-router-dom";
 import { ERC725, ERC725JSONSchema } from "@erc725/erc725.js";
 import makeBlockie from "ethereum-blockies-base64";
 import { AppMenu } from "@/components/App/AppMenu";

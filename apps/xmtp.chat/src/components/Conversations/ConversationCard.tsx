@@ -1,7 +1,7 @@
 import { Box, Card, Flex, Stack, Text, Image, Tooltip, Group } from "@mantine/core";
 import { Dm, Group as XmtpGroup, type Conversation } from "@xmtp/browser-sdk";
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useNavigate, useParams } from "react-router-dom";
 import makeBlockie from 'ethereum-blockies-base64';
 import { useWhiskIdentity } from "@/hooks/useWhiskIdentity";
 import { useXMTP } from "@/contexts/XMTPContext";

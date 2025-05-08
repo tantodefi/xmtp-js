@@ -1,7 +1,7 @@
 import { Box, Button, Group, TextInput, Divider, Stack, Title, Text, Image, Loader } from "@mantine/core";
 import { Utils, type Conversation } from "@xmtp/browser-sdk";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate } from "react-router-dom";
 import { Modal } from "@/components/Modal";
 import { isValidEthereumAddress, isValidInboxId } from "@/helpers/strings";
 import { useCollapsedMediaQuery } from "@/hooks/useCollapsedMediaQuery";

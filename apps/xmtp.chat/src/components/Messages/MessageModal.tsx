@@ -1,7 +1,7 @@
 import { Center, ScrollArea, Stack, Tabs, Text } from "@mantine/core";
 import { type DecodedMessage } from "@xmtp/browser-sdk";
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useNavigate, useParams } from "react-router-dom";
 import { CodeWithCopy } from "@/components/CodeWithCopy";
 import { Modal } from "@/components/Modal";
 import { useCollapsedMediaQuery } from "@/hooks/useCollapsedMediaQuery";

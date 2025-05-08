@@ -1,6 +1,6 @@
 import { Box, Button, LoadingOverlay, Text } from "@mantine/core";
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate } from "react-router-dom";
 import { useXMTP } from "@/contexts/XMTPContext";
 
 export const Disconnect: React.FC = () => {

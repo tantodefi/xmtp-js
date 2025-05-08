@@ -349,7 +349,55 @@ export const createDirectLuksoSigner = (
   return signer;
 };
 
-/* --------------- PROXY EPHEMERAL SIGNER FOR LUKSO --------------- */
+/* --------------- SIGNERS FOR LUKSO --------------- */
+
+/**
+ * This creates a signer that uses the actual UP wallet to sign messages.
+ * This will prompt the user with their UP wallet to sign the message.
+ */
+export const createUPSigner = (
+  address: `0x${string}`,
+): Signer => {
+  // Ensure UP address is lowercase - XMTP requires this
+  const normalizedAddress = address.toLowerCase();
+  
+  console.log("Creating UP signer for address:", normalizedAddress);
+  
+  return {
+    // Type must be exactly "EOA" (case sensitive)
+    type: "EOA",
+    
+    // IMPORTANT: getIdentifier must NOT be async for XMTP
+    getIdentifier: () => ({
+      identifierKind: "Ethereum",
+      identifier: normalizedAddress,
+    }),
+    
+    // Sign with the UP wallet - this will prompt the user
+    signMessage: async (message: string): Promise<Uint8Array> => {
+      console.log("UP signer signing message with Universal Profile:", message);
+      
+      try {
+        // Use the UP provider to sign the message
+        if (!window.lukso || typeof window.lukso.request !== 'function') {
+          throw new Error('UP provider not available');
+        }
+        
+        // This will trigger the UP wallet to prompt the user to sign
+        const signature = await window.lukso.request({
+          method: 'personal_sign',
+          params: [message, normalizedAddress]
+        }) as string;
+        
+        console.log("UP signature obtained:", signature);
+        return toBytes(signature as Hex);
+      } catch (error) {
+        console.error("Error signing with UP:", error);
+        throw error;
+      }
+    }
+  };
+};
 
 /**
  * This creates a proxy ephemeral signer that transparently works with LUKSO UP

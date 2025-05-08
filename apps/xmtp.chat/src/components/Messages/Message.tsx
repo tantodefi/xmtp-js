@@ -9,7 +9,7 @@ import {
   type WalletSendCallsParams,
 } from "@xmtp/content-type-wallet-send-calls";
 import { intlFormat, formatRelative } from "date-fns";
-import { useNavigate, useOutletContext } from "react-router";
+import { useNavigate, useOutletContext } from "react-router-dom";
 import { nsToDate } from "@/helpers/date";
 import { useWhiskIdentity } from "@/hooks/useWhiskIdentity";
 import classes from "./Message.module.css";

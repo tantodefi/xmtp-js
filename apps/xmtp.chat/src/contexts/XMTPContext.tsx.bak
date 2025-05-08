@@ -22,7 +22,6 @@ export type InitializeClientOptions = {
   env?: ClientOptions["env"];
   loggingLevel?: ClientOptions["loggingLevel"];
   signer: Signer;
-  options?: any;
 };
 
 export type XMTPContextValue = {
@@ -75,7 +74,6 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
       env,
       loggingLevel,
       signer,
-      options,
     }: InitializeClientOptions) => {
       // only initialize a client if one doesn't already exist
       if (!client) {
@@ -162,91 +160,19 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
           });
           
           try {
-            // Check if WASM loading was successful
-            const wasmStatus = (window as any).wasmLoadingStatus || { attempted: false, successful: false, error: null };
-            console.log("XMTP WASM loading status:", wasmStatus);
-            
-            // If WASM loading failed, we need to handle it
-            if (wasmStatus.attempted && !wasmStatus.successful) {
-              console.warn("WASM loading was not successful, client creation may fail");
-            }
-            
-            // Set up worker error detection
-            let workerErrorOccurred = false;
-            const detectWorkerError = () => {
-              if ((window as any).wasmLoadingStatus?.error) {
-                workerErrorOccurred = true;
-                return true;
-              }
-              
-              // Check for console errors related to the worker
-              const consoleErrors = (window as any).__xmtp_console_errors || [];
-              if (consoleErrors.some((err: string) => 
-                err.includes('Worker error') || 
-                err.includes('ClientWorkerClass')
-              )) {
-                workerErrorOccurred = true;
-                return true;
-              }
-              
-              return false;
-            };
-            
-            // Initialize console error tracking if not already set up
-            if (!(window as any).__xmtp_console_errors) {
-              (window as any).__xmtp_console_errors = [];
-              const originalConsoleError = console.error;
-              console.error = function(...args: any[]) {
-                // Call the original console.error
-                originalConsoleError.apply(console, args);
-                
-                // Store the error message
-                const errorMessage = args.map(arg => 
-                  typeof arg === 'string' ? arg : JSON.stringify(arg)
-                ).join(' ');
-                (window as any).__xmtp_console_errors.push(errorMessage);
-              };
-            }
-            
-            // Create a promise with a timeout to handle potential WASM worker errors
-            const clientPromise = Promise.race([
-              // Attempt to create the client
-              Client.create(signer, {
-                env,
-                loggingLevel,
-                dbEncryptionKey,
-                codecs: [
-                  new ReactionCodec(),
-                  new ReplyCodec(),
-                  new RemoteAttachmentCodec(),
-                  new TransactionReferenceCodec(),
-                  new WalletSendCallsCodec(),
-                ],
-              }),
-              // Set a timeout to prevent hanging
-              new Promise((_, reject) => {
-                // Check for worker errors periodically
-                const errorCheckInterval = setInterval(() => {
-                  if (detectWorkerError()) {
-                    clearInterval(errorCheckInterval);
-                    reject(new Error('XMTP client creation failed due to WASM worker error'));
-                  }
-                }, 200); // Check more frequently
-                
-                // Set a final timeout - reduced from 10s to 5s
-                setTimeout(() => {
-                  clearInterval(errorCheckInterval);
-                  if (workerErrorOccurred) {
-                    reject(new Error('XMTP client creation failed due to worker error'));
-                  } else {
-                    reject(new Error('XMTP client creation timed out'));
-                  }
-                }, 5000); // 5 second timeout instead of 10 seconds
-              })
-            ]);
-            
-            // Wait for either successful client creation or timeout
-            xmtpClient = await clientPromise as Client;
+            // create a new XMTP client
+            xmtpClient = await Client.create(signer, {
+              env,
+              loggingLevel,
+              dbEncryptionKey,
+              codecs: [
+                new ReactionCodec(),
+                new ReplyCodec(),
+                new RemoteAttachmentCodec(),
+                new TransactionReferenceCodec(),
+                new WalletSendCallsCodec(),
+              ],
+            });
 
             // Log client creation success with safe property access
             console.log("XMTP client created successfully", {
@@ -266,36 +192,29 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
             setClient(xmtpClient);
             console.log("Client successfully set in state");
             
-            // Set a flag in localStorage to indicate successful client creation
-            localStorage.setItem('xmtp_client_created', 'true');
-            
             return xmtpClient;
           } catch (e) {
-            console.error("Error creating XMTP client:", e);
+          console.error("Error creating XMTP client:", e);
 
-            // Provide more detailed diagnostics for "Unknown signer" error
-            if (e instanceof Error && e.message === "Unknown signer") {
-              console.error("XMTP Unknown signer error detected. This typically means:");
-              console.error("1. The signer type is not supported by XMTP");
-              console.error("2. The signer implementation is missing required methods");
-              console.error("3. The signer implementation is not returning values in the expected format");
-              console.error("Please review the docs for a fix @https://docs.xmtp.org/");
-            }
-
-            setClient(undefined);
-            setError(e as Error);
-            // re-throw error for upstream consumption
-            throw e;
-          } finally {
-            initializingRef.current = false;
-            setInitializing(false);
+          // Provide more detailed diagnostics for "Unknown signer" error
+          if (e instanceof Error && e.message === "Unknown signer") {
+            console.error("XMTP Unknown signer error detected. This typically means:");
+            console.error("1. The signer type is not supported by XMTP");
+            console.error("2. The signer implementation is missing required methods");
+            console.error("3. The signer implementation is not returning values in the expected format");
+            console.error("Please review the docs for a fix @https://docs.xmtp.org/");
           }
-        } catch (e) {
-          console.error("Error in initialize function:", e);
+
+          setClient(undefined);
+          setError(e as Error);
+          // re-throw error for upstream consumption
+          throw e;
+        } finally {
           initializingRef.current = false;
           setInitializing(false);
-          throw e;
         }
+
+        return xmtpClient;
       }
       return client;
     },
@@ -313,10 +232,6 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
       } catch (error) {
         console.warn("Error saving client inbox ID for reconnection:", error);
       }
-
-      // Clean up localStorage flags
-      localStorage.removeItem('xmtp_client_created');
-      localStorage.removeItem('xmtp_client_attempted');
 
       // Close the client connection without losing stored keys
       client.close();

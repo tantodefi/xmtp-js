@@ -3,7 +3,7 @@ import "./globals.css";
 import { MantineProvider } from "@mantine/core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter } from "react-router";
+import { BrowserRouter } from "react-router-dom";
 import { createConfig, http, WagmiProvider } from "wagmi";
 import {
   coinbaseWallet,

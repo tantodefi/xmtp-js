@@ -6,7 +6,7 @@ import {
 } from "@xmtp/content-type-transaction-reference";
 import type { WalletSendCallsParams } from "@xmtp/content-type-wallet-send-calls";
 import { useCallback, useState } from "react";
-import { useOutletContext } from "react-router";
+import { useOutletContext } from "react-router-dom";
 import { useChainId, useSendTransaction, useSwitchChain } from "wagmi";
 import { isLuksoUPProvider } from "@/helpers/createSigner";
 

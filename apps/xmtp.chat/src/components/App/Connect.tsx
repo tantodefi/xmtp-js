@@ -1,6 +1,6 @@
 import { Box, Group, LoadingOverlay, Stack, Image } from "@mantine/core";
 import { useCallback, useEffect, useState, useRef } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate } from "react-router-dom";
 import { hexToUint8Array } from "uint8array-extras";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import type { WalletClient, Hex } from "viem";

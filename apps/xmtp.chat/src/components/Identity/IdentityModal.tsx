@@ -11,7 +11,7 @@ import {
 } from "@mantine/core";
 import type { Client } from "@xmtp/browser-sdk";
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate, useOutletContext } from "react-router";
+import { useNavigate, useOutletContext } from "react-router-dom";
 import { BadgeWithCopy } from "@/components/BadgeWithCopy";
 import { InstallationTable } from "@/components/Identity/InstallationTable";
 import { Modal } from "@/components/Modal";

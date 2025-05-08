@@ -1,7 +1,7 @@
 import { LoadingOverlay } from "@mantine/core";
 import type { Dm, Group } from "@xmtp/browser-sdk";
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useNavigate, useParams } from "react-router-dom";
 import { useConversations } from "@/hooks/useConversations";
 import { CenteredLayout } from "@/layouts/CenteredLayout";
 import { Conversation } from "./Conversation";

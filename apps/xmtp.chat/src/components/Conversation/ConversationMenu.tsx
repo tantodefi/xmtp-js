@@ -1,5 +1,5 @@
 import { Button, Menu } from "@mantine/core";
-import { useNavigate } from "react-router";
+import { useNavigate } from "react-router-dom";
 import { IconDots } from "@/icons/IconDots";
 
 export type ConversationMenuProps = {

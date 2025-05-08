@@ -6,7 +6,7 @@ import {
   type Conversation as XmtpConversation,
 } from "@xmtp/browser-sdk";
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
-import { Outlet, useOutletContext } from "react-router";
+import { Outlet, useOutletContext } from "react-router-dom";
 import makeBlockie from 'ethereum-blockies-base64';
 import { ConversationMenu } from "@/components/Conversation/ConversationMenu";
 import { Messages } from "@/components/Messages/Messages";
