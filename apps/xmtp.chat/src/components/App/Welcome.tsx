@@ -198,23 +198,37 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
       // 4. Send the message with proper content type and metadata
       console.log('Sending message to grid owner');
       try {
+        // Create a standardized conversation ID that will be consistent across all messages
+        // This helps the grid owner see all messages in one conversation
+        const standardConversationId = `gridowner-messages-${xmtpAddress}`;
+        
         // Set conversation metadata to ensure it appears in the recipient's list
         // This is important for message discovery between different clients
         const contentType = 'text/plain';
         const contentOptions = {
           contentType,
-          conversationId: `${upAddress || 'anonymous'}-to-${xmtpAddress}`,
+          // Use a fixed conversation ID format that will be consistent for all grid owner messages
+          conversationId: standardConversationId,
+          // Add a special topic to make these messages easily identifiable
+          topic: 'gridowner-contact-form',
           metadata: {
-            conversationId: `${upAddress || 'anonymous'}-to-${xmtpAddress}`,
-            title: `Message from ${upAddress || 'LUKSO UP User'}`,
-            conversationType: 'direct',
+            // Use the same consistent conversation ID
+            conversationId: standardConversationId,
+            // Add a clear title that will show up in the grid owner's conversation list
+            title: `Grid Owner Contact Form`,
+            // Mark this as a special conversation type
+            conversationType: 'gridowner-contact',
             sender: upAddress || 'anonymous',
             recipient: xmtpAddress,
             timestamp: Date.now().toString(),
+            // Add additional metadata to help with discovery
+            isGridOwnerMessage: 'true',
+            appVersion: '1.0',
+            messageType: 'contact-form'
           }
         };
         
-        console.log('Using content options:', contentOptions);
+        console.log('Using content options with standard conversation ID:', contentOptions);
         
         // Set a timeout to ensure we don't wait too long
         const sendPromise = conversation.send(messageWithSenderInfo, contentOptions);
