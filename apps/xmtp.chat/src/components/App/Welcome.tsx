@@ -3,7 +3,6 @@ import { XMTPConnectButton } from "./XMTPConnectButton";
 import { useNavigate } from "react-router-dom";
 import { useSettings } from "@/hooks/useSettings";
 import { Connect } from "./Connect";
-import { useXMTP } from "@/contexts/XMTPContext";
 import { useEffect, useState } from "react";
 import { LuksoProfile } from "@/components/LuksoProfile";
 import { useXMTP } from "@/contexts/XMTPContext";
