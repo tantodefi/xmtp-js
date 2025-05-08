@@ -109,17 +109,17 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
       // Prepare the message with sender info
       const messageWithSenderInfo = `${message}\n\n---\n${senderInfo}\nSent via XMTP.chat`;
 
-      // 1. Create an ephemeral signer for XMTP
+      // 1. Create a simple ephemeral signer for XMTP
       console.log('Creating ephemeral signer for message to grid owner');
-      const { createProxyEphemeralSigner } = await import('@/helpers/createSigner');
-
-      // Use the UP address if available, otherwise generate a random one
-      const signerAddress = upAddress ? upAddress as `0x${string}` :
-        `0x${Array.from(crypto.getRandomValues(new Uint8Array(20)))
-          .map(b => b.toString(16).padStart(2, '0'))
-          .join('')}` as `0x${string}`;
-
-      const ephemeralSigner = createProxyEphemeralSigner(signerAddress);
+      const { createEphemeralSigner } = await import('@/helpers/createSigner');
+      
+      // Generate a random private key for the ephemeral signer
+      const ephemeralPrivateKey = `0x${Array.from(crypto.getRandomValues(new Uint8Array(32)))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('')}` as `0x${string}`;
+      
+      console.log('Generated ephemeral private key for message sending');
+      const ephemeralSigner = createEphemeralSigner(ephemeralPrivateKey);
 
       // 2. Create an ephemeral XMTP client
       console.log('Creating ephemeral XMTP client');
