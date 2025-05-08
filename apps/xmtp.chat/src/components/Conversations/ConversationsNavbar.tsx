@@ -72,7 +72,9 @@ export const ConversationsNavbar: React.FC = () => {
       withScrollArea={false}>
       <Flex direction="column" style={{ height: "100%" }}>
         {/* Add the GridOwnerMessages component at the top */}
-        <GridOwnerMessages />
+        <Box mb="xs">
+          <GridOwnerMessages key={`grid-owner-messages-${Date.now()}`} />
+        </Box>
         
         {conversations.length === 0 ? (
           <Box

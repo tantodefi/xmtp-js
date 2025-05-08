@@ -201,6 +201,8 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
         // Create a standardized conversation ID that will be consistent across all messages
         // This helps the grid owner see all messages in one conversation
         const standardConversationId = `gridowner-messages-${xmtpAddress}`;
+        console.log('Using standardized conversation ID:', standardConversationId);
+        console.log('Grid owner XMTP address:', xmtpAddress);
         
         // Set conversation metadata to ensure it appears in the recipient's list
         // This is important for message discovery between different clients
