@@ -124,23 +124,13 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
       // This helps with conversation threading and discovery
       let ephemeralPrivateKey: `0x${string}`;
       
-      // Try to use the stored ephemeral key if available
-      const storedKeyKey = `lukso_ephemeral_key_${gridOwnerAddress}`;
-      const storedKey = localStorage.getItem(storedKeyKey);
+      // Generate a new random private key for each message
+      // This is more reliable than trying to store and retrieve the key
+      ephemeralPrivateKey = `0x${Array.from(crypto.getRandomValues(new Uint8Array(32)))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('')}` as `0x${string}`;
       
-      if (storedKey) {
-        console.log('Using stored ephemeral key for consistency');
-        ephemeralPrivateKey = storedKey as `0x${string}`;
-      } else {
-        // Generate a new random private key
-        ephemeralPrivateKey = `0x${Array.from(crypto.getRandomValues(new Uint8Array(32)))
-          .map(b => b.toString(16).padStart(2, '0'))
-          .join('')}` as `0x${string}`;
-        
-        // Store it for future use with this grid owner
-        localStorage.setItem(storedKeyKey, ephemeralPrivateKey);
-        console.log('Generated and stored new ephemeral private key for message sending');
-      }
+      console.log('Generated new ephemeral private key for message sending');
       
       const ephemeralSigner = createEphemeralSigner(ephemeralPrivateKey);
 
