@@ -106,8 +106,9 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
         // Continue with anonymous message
       }
 
-      // Prepare the message with sender info
-      const messageWithSenderInfo = `${message}\n\n---\n${senderInfo}\nSent via XMTP.chat`;
+      // 3. Prepare the message with sender info
+      const messageWithSenderInfo = `Message from ${upAddress || 'LUKSO UP User'}:\n\n${message}\n\n---\n${senderInfo}\nSent via XMTP.chat`;
+      console.log('Message with sender info:', messageWithSenderInfo);
 
       // 1. Create a simple ephemeral signer for XMTP
       console.log('Creating ephemeral signer for message to grid owner');
@@ -194,18 +195,46 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
         }
       }
       
-      // 4. Send the message
+      // 4. Send the message with proper content type and metadata
       console.log('Sending message to grid owner');
       try {
+        // Set conversation metadata to ensure it appears in the recipient's list
+        // This is important for message discovery between different clients
+        const contentType = 'text/plain';
+        const contentOptions = {
+          contentType,
+          conversationId: `${upAddress || 'anonymous'}-to-${xmtpAddress}`,
+          metadata: {
+            conversationId: `${upAddress || 'anonymous'}-to-${xmtpAddress}`,
+            title: `Message from ${upAddress || 'LUKSO UP User'}`,
+            conversationType: 'direct',
+            sender: upAddress || 'anonymous',
+            recipient: xmtpAddress,
+            timestamp: Date.now().toString(),
+          }
+        };
+        
+        console.log('Using content options:', contentOptions);
+        
         // Set a timeout to ensure we don't wait too long
-        const sendPromise = conversation.send(messageWithSenderInfo);
+        const sendPromise = conversation.send(messageWithSenderInfo, contentOptions);
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => reject(new Error('Send operation timed out but may have succeeded')), 5000);
         });
         
         // Race between send and timeout
         await Promise.race([sendPromise, timeoutPromise]);
-        console.log('Message sent successfully');
+        console.log('Message sent successfully with metadata');
+        
+        // Try to force a sync to ensure the message appears in the recipient's list
+        try {
+          if (client.conversations && typeof client.conversations.sync === 'function') {
+            console.log('Forcing conversation sync');
+            await client.conversations.sync();
+          }
+        } catch (syncError) {
+          console.warn('Error syncing conversations, but message was still sent:', syncError);
+        }
       } catch (error) {
         // Type guard for the error
         const sendError = error as Error;
