@@ -3,6 +3,7 @@ import { XMTPConnectButton } from "./XMTPConnectButton";
 import { useNavigate } from "react-router-dom";
 import { useSettings } from "@/hooks/useSettings";
 import { Connect } from "./Connect";
+import { useXMTP } from "@/contexts/XMTPContext";
 import { useEffect, useState } from "react";
 import { LuksoProfile } from "@/components/LuksoProfile";
 import { useXMTP } from "@/contexts/XMTPContext";
@@ -237,8 +238,34 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
         });
         
         // Race between send and timeout
-        await Promise.race([sendPromise, timeoutPromise]);
-        console.log('Message sent successfully with metadata');
+        const result = await Promise.race([sendPromise, timeoutPromise]);
+        console.log('Message sent successfully with metadata, result:', result);
+        
+        // Store the message in localStorage as a fallback mechanism
+        try {
+          // Get existing messages or initialize empty array
+          const storedMessages = localStorage.getItem('gridOwnerMessages') || '[]';
+          const messages = JSON.parse(storedMessages);
+          
+          // Add the new message
+          const messageData = {
+            id: result?.id || `msg-${Date.now()}`,
+            conversationId: standardConversationId,
+            sender: upAddress || 'anonymous',
+            recipient: xmtpAddress,
+            content: messageWithSenderInfo,
+            timestamp: Date.now(),
+            metadata: contentOptions.metadata
+          };
+          
+          messages.push(messageData);
+          
+          // Save back to localStorage
+          localStorage.setItem('gridOwnerMessages', JSON.stringify(messages));
+          console.log('Message saved to localStorage for fallback retrieval');
+        } catch (storageError) {
+          console.warn('Failed to save message to localStorage:', storageError);
+        }
         
         // Try to force a sync to ensure the message appears in the recipient's list
         try {

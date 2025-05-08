@@ -2,6 +2,7 @@ import { Badge, Box, Group, Text, Flex, Button } from "@mantine/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ConversationsList } from "@/components/Conversations/ConversationList";
 import { ConversationsMenu } from "@/components/Conversations/ConversationsMenu";
+import { GridOwnerMessages } from "@/components/Conversations/GridOwnerMessages";
 import { useConversations } from "@/hooks/useConversations";
 import { ContentLayout } from "@/layouts/ContentLayout";
 
@@ -70,6 +71,9 @@ export const ConversationsNavbar: React.FC = () => {
       }
       withScrollArea={false}>
       <Flex direction="column" style={{ height: "100%" }}>
+        {/* Add the GridOwnerMessages component at the top */}
+        <GridOwnerMessages />
+        
         {conversations.length === 0 ? (
           <Box
             display="flex"
