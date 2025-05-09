@@ -162,10 +162,15 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
       // 3. Open a conversation with the grid owner
       console.log(`Opening conversation with grid owner at XMTP address: ${xmtpAddress}`);
       
-      // Create a standardized conversation ID that will be consistent for all grid owner messages
-      // This helps with conversation discovery across different clients
-      const standardConversationId = `gridowner-messages-${xmtpAddress}`;
-      console.log('Using standardized conversation ID:', standardConversationId);
+      // Create a consistent conversationId for the grid owner conversation
+      // This matches how the rest of the app identifies conversations
+      const conversationId = `gridowner-${xmtpAddress.toLowerCase()}`;
+      console.log('Using consistent conversationId:', conversationId);
+      
+      // Create a topic for the conversation that matches the app's format
+      // The app uses simple topics like 'gridowner-contact-form'
+      const topic = 'gridowner-contact-form';
+      console.log('Using standard topic format:', topic);
       
       // Try to create a new conversation or find an existing one
       let conversation;
@@ -199,8 +204,8 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
           const peerAddressMatch = c.peerAddress?.toLowerCase() === xmtpAddress.toLowerCase();
           
           // Check if the conversation has our standard ID in context or metadata
-          const hasStandardId = c.context?.conversationId === standardConversationId ||
-                               c.metadata?.conversationId === standardConversationId;
+          const hasStandardId = c.context?.conversationId === conversationId ||
+                               c.metadata?.conversationId === conversationId;
           
           // Check if it has our special topic or type
           const hasSpecialType = c.metadata?.conversationType === 'gridowner-contact' ||
@@ -216,58 +221,33 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
         } else {
           // No existing conversation found, create a new one using the proper method
           console.log('No existing conversation found, creating new one with identifier');
+                   // No existing conversation found, create a new one using the proper method
+          console.log('No existing conversation found, creating new one with identifier');
           
-          // Prepare comprehensive metadata to ensure discoverability
-          const conversationMetadata = {
-            // Use a consistent conversation ID
-            conversationId: standardConversationId,
-            // Add a clear title that will show up in the conversation list
-            title: 'Grid Owner Contact Form',
-            // Mark this as a special conversation type
-            conversationType: 'gridowner-contact',
-            // Add a topic for easier filtering
-            topic: 'gridowner-contact-form',
-            // Flag for grid owner messages
-            isGridOwnerMessage: 'true',
-            // Add timestamp for sorting
-            createdAt: Date.now().toString(),
-            // Add version info
-            appVersion: '1.0'
-          };
-          
-          // Try different methods to create a conversation based on SDK version
+          // Create the conversation exactly like the regular app does
+          // This ensures compatibility and discoverability
           try {
+            console.log('Creating conversation with the same approach as the regular app');
+            
             // First try newDmWithIdentifier (preferred method)
             if (typeof conversationsApi.newDmWithIdentifier === 'function') {
+              // Use the exact same format as the app's CreateDmModal component
               conversation = await conversationsApi.newDmWithIdentifier({
                 identifier: xmtpAddress.toLowerCase(),
                 identifierKind: 'Ethereum'
-              }, {
-                metadata: conversationMetadata,
-                context: {
-                  conversationId: standardConversationId
-                }
               });
               console.log('Successfully created conversation with newDmWithIdentifier:', conversation);
             }
             // Fallback to newDm if needed
             else if (typeof conversationsApi.newDm === 'function') {
-              conversation = await conversationsApi.newDm(xmtpAddress, {
-                metadata: conversationMetadata,
-                context: {
-                  conversationId: standardConversationId
-                }
-              });
+              // Use the exact same format as the app's regular DM creation
+              conversation = await conversationsApi.newDm(xmtpAddress);
               console.log('Successfully created conversation with newDm:', conversation);
             }
             // Last resort - try createConversation
             else if (typeof conversationsApi.createConversation === 'function') {
               conversation = await conversationsApi.createConversation({
-                peerAddress: xmtpAddress,
-                context: {
-                  conversationId: standardConversationId,
-                  metadata: conversationMetadata
-                }
+                peerAddress: xmtpAddress
               });
               console.log('Successfully created conversation with createConversation:', conversation);
             }
@@ -295,36 +275,18 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
       // 4. Send the message with proper content type and metadata
       console.log('Sending message to grid owner');
       try {
-        // The XMTP SDK expects content options in a specific format
-        // For most SDK versions, we should only pass the content type and content
+        // Send the message exactly like the regular app does
+        // The app uses a simple conversation.send(message) call without additional parameters
         console.log('Preparing to send message to grid owner');
         
-        // Store the metadata we want to associate with this message
-        const messageMetadata = {
-          // Use the same consistent conversation ID
-          conversationId: standardConversationId,
-          // Add a clear title that will show up in the grid owner's conversation list
-          title: `Grid Owner Contact Form`,
-          // Mark this as a special conversation type
-          conversationType: 'gridowner-contact',
-          // Add sender/recipient info
-          sender: upAddress || 'anonymous',
-          recipient: xmtpAddress,
-          // Add timestamp for sorting
-          timestamp: Date.now().toString(),
-          // Add additional metadata to help with discovery
-          isGridOwnerMessage: 'true',
-          appVersion: '1.0',
-          messageType: 'contact-form'
-        };
+        // Include minimal metadata in the message content itself
+        // This ensures compatibility with all XMTP clients
+        const messageWithMetadata = `${messageWithSenderInfo}\n\n---\nFrom: ${upAddress || 'anonymous'} | via Grid Owner Contact Form`;
         
-        // Add metadata to the message content itself
-        const messageWithMetadata = `${messageWithSenderInfo}\n\n---\nMetadata: ${JSON.stringify(messageMetadata)}`;
-        
-        console.log('Sending plain text message with embedded metadata');
+        // Send the message with the conversation object using the same approach as the regular app
+        console.log('Sending message to grid owner with conversation:', conversation);
         
         // Send the message with a timeout to ensure we don't wait too long
-        // Most XMTP SDK versions expect just the content for text messages
         const sendPromise = conversation.send(messageWithMetadata);
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => reject(new Error('Send operation timed out but may have succeeded')), 10000);
@@ -338,16 +300,35 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
         try {
           console.log('Forcing conversation sync after successful send');
           const conversationsApi = client.conversations as any;
-          if (typeof conversationsApi.syncAllMessages === 'function') {
-            await conversationsApi.syncAllMessages();
-          } else if (typeof conversationsApi.syncAll === 'function') {
-            await conversationsApi.syncAll();
-          } else if (typeof conversationsApi.sync === 'function') {
-            await conversationsApi.sync();
+          
+          // Try multiple sync methods with retries for better reliability
+          const syncMethods = [
+            { name: 'syncAllMessages', fn: conversationsApi.syncAllMessages },
+            { name: 'syncAll', fn: conversationsApi.syncAll },
+            { name: 'sync', fn: conversationsApi.sync }
+          ];
+          
+          // Try each sync method with retries
+          for (const method of syncMethods) {
+            if (typeof method.fn === 'function') {
+              console.log(`Trying sync method: ${method.name}`);
+              try {
+                await method.fn.call(conversationsApi);
+                console.log(`Sync with ${method.name} completed successfully`);
+                // Try a second time for better reliability
+                await new Promise(resolve => setTimeout(resolve, 500));
+                await method.fn.call(conversationsApi);
+                console.log(`Second ${method.name} sync completed`);
+                break;
+              } catch (e) {
+                console.warn(`Error with ${method.name} sync method:`, e);
+              }
+            }
           }
-          console.log('Sync completed after message send');
+          
+          console.log('All sync attempts completed');
         } catch (syncError) {
-          console.warn('Error syncing conversations after send, but message was still sent:', syncError);
+          console.warn('Error during sync process, but message was still sent:', syncError);
         }
         
         // Verify the conversation appears in the list
@@ -356,21 +337,34 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
           const conversationsApi = client.conversations as any;
           const conversations = await conversationsApi.list();
           
-          // Look for our conversation using multiple criteria
+          // Look for our conversation using multiple criteria with standard XMTP formats
           const ourConvo = conversations.find((c: any) => {
-            // Check if the peer address matches
+            // Check if the peer address matches (most reliable method)
             const peerAddressMatch = c.peerAddress?.toLowerCase() === xmtpAddress.toLowerCase();
             
-            // Check if the conversation has our standard ID in context or metadata
-            const hasStandardId = c.context?.conversationId === standardConversationId ||
-                                 c.metadata?.conversationId === standardConversationId;
+            // Check if the conversation has our ID in context or metadata
+            const hasConversationId = c.context?.conversationId === conversationId ||
+                                     c.metadata?.conversationId === conversationId;
             
-            // Check if it has our special topic or type
-            const hasSpecialType = c.metadata?.conversationType === 'gridowner-contact' ||
-                                 c.metadata?.topic === 'gridowner-contact-form' ||
-                                 c.metadata?.isGridOwnerMessage === 'true';
+            // Check if it has our standard topic
+            const hasStandardTopic = c.context?.topic === topic ||
+                                    c.metadata?.topic === topic;
             
-            return peerAddressMatch || hasStandardId || hasSpecialType;
+            // Check if it has our special type
+            const hasSpecialType = c.metadata?.isGridOwnerMessage === 'true';
+            
+            // Log what we found for debugging
+            if (peerAddressMatch || hasConversationId || hasStandardTopic || hasSpecialType) {
+              console.log('Found matching conversation:', { 
+                id: c.id,
+                peerAddressMatch,
+                hasConversationId,
+                hasStandardTopic,
+                hasSpecialType
+              });
+            }
+            
+            return peerAddressMatch || hasConversationId || hasStandardTopic || hasSpecialType;
           });
           
           if (ourConvo) {
@@ -386,14 +380,49 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
             }
           } else {
             console.warn('Could not find our conversation in the list after sending');
-            // Try a more aggressive sync
+            
+            // Try a more aggressive approach to force conversation discovery
             try {
-              if (typeof conversationsApi.syncAllMessages === 'function') {
-                await conversationsApi.syncAllMessages();
-                console.log('Performed aggressive sync after failing to find conversation');
+              console.log('Attempting to force conversation discovery...');
+              
+              // Try to create the conversation again with the same parameters
+              // This can sometimes help with discovery
+              if (typeof conversationsApi.newDmWithIdentifier === 'function') {
+                console.log('Attempting to recreate conversation to aid discovery');
+                // Use the exact same format as the app's CreateDmModal component
+                const rediscoveryConvo = await conversationsApi.newDmWithIdentifier({
+                  identifier: xmtpAddress.toLowerCase(),
+                  identifierKind: 'Ethereum'
+                });
+                console.log('Rediscovery conversation created:', rediscoveryConvo?.id);
+              }
+              
+              // Try multiple aggressive syncs with delays
+              const syncMethods = ['syncAllMessages', 'syncAll', 'sync'];
+              for (const methodName of syncMethods) {
+                if (typeof conversationsApi[methodName] === 'function') {
+                  console.log(`Performing aggressive ${methodName} sync`);
+                  await conversationsApi[methodName]();
+                  await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+              }
+              
+              // Try listing conversations again after aggressive sync
+              const refreshedConversations = await conversationsApi.list();
+              console.log(`After aggressive sync, found ${refreshedConversations.length} conversations`);
+              
+              // Check if our conversation is now visible
+              const foundAfterSync = refreshedConversations.some((c: any) => 
+                c.peerAddress?.toLowerCase() === xmtpAddress.toLowerCase()
+              );
+              
+              if (foundAfterSync) {
+                console.log('Successfully found conversation after aggressive sync!');
+              } else {
+                console.warn('Still could not find conversation after aggressive sync');
               }
             } catch (aggressiveSyncError) {
-              console.warn('Error during aggressive sync:', aggressiveSyncError);
+              console.warn('Error during aggressive discovery process:', aggressiveSyncError);
             }
           }
         } catch (verifyError) {
