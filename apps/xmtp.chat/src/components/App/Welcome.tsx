@@ -164,13 +164,13 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
       
       // Create a consistent conversationId for the grid owner conversation
       // This matches how the rest of the app identifies conversations
-      const conversationId = `gridowner-${xmtpAddress.toLowerCase()}`;
-      console.log('Using consistent conversationId:', conversationId);
+      // Use the raw address without any prefix to ensure it matches the standard format
+      const conversationId = xmtpAddress.toLowerCase();
+      console.log('Using standard conversationId format:', conversationId);
       
-      // Create a topic for the conversation that matches the app's format
-      // The app uses simple topics like 'gridowner-contact-form'
-      const topic = 'gridowner-contact-form';
-      console.log('Using standard topic format:', topic);
+      // Don't use a custom topic - the app uses the default topic for DMs
+      // This ensures compatibility with the main client
+      console.log('Using standard DM conversation without custom topic');
       
       // Try to create a new conversation or find an existing one
       let conversation;
@@ -207,9 +207,9 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
           const hasStandardId = c.context?.conversationId === conversationId ||
                                c.metadata?.conversationId === conversationId;
           
-          // Check if it has our special topic or type
-          const hasSpecialType = c.metadata?.conversationType === 'gridowner-contact' ||
-                               c.metadata?.topic === 'gridowner-contact-form' ||
+          // Check if it has our special type
+          // Don't check for custom topic as we're using standard DM format
+          const hasSpecialType = c.metadata?.conversationType === 'dm' ||
                                c.metadata?.isGridOwnerMessage === 'true';
           
           return peerAddressMatch || hasStandardId || hasSpecialType;
@@ -279,9 +279,10 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
         // The app uses a simple conversation.send(message) call without additional parameters
         console.log('Preparing to send message to grid owner');
         
-        // Include minimal metadata in the message content itself
+        // Keep the message format simple and standard
         // This ensures compatibility with all XMTP clients
-        const messageWithMetadata = `${messageWithSenderInfo}\n\n---\nFrom: ${upAddress || 'anonymous'} | via Grid Owner Contact Form`;
+        // Don't add any special formatting that might confuse the client
+        const messageWithMetadata = messageWithSenderInfo;
         
         // Send the message with the conversation object using the same approach as the regular app
         console.log('Sending message to grid owner with conversation:', conversation);
@@ -346,25 +347,24 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
             const hasConversationId = c.context?.conversationId === conversationId ||
                                      c.metadata?.conversationId === conversationId;
             
-            // Check if it has our standard topic
-            const hasStandardTopic = c.context?.topic === topic ||
-                                    c.metadata?.topic === topic;
+            // We're using standard DM format without custom topic
+            // so we don't need to check for a specific topic
             
             // Check if it has our special type
             const hasSpecialType = c.metadata?.isGridOwnerMessage === 'true';
             
             // Log what we found for debugging
-            if (peerAddressMatch || hasConversationId || hasStandardTopic || hasSpecialType) {
+            if (peerAddressMatch || hasConversationId || hasSpecialType) {
               console.log('Found matching conversation:', { 
                 id: c.id,
                 peerAddressMatch,
                 hasConversationId,
-                hasStandardTopic,
                 hasSpecialType
               });
             }
             
-            return peerAddressMatch || hasConversationId || hasStandardTopic || hasSpecialType;
+            // Return true if any criteria match
+            return peerAddressMatch || hasConversationId || hasSpecialType;
           });
           
           if (ourConvo) {
