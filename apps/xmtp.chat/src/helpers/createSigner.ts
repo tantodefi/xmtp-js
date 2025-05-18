@@ -43,6 +43,12 @@ export const isLuksoUPProvider = (provider: any): boolean => {
   );
 };
 
+// Extend the Signer type to include optional chain ID support
+interface ExtendedSigner extends Signer {
+  getChainId?: () => bigint;
+  getBlockNumber?: () => bigint;
+}
+
 // Add more specific type for LUKSO provider
 interface LuksoProvider {
   request: (args: { method: string; params?: any[] }) => Promise<any>;
@@ -375,15 +381,15 @@ export const createDirectLuksoSigner = (
   }
   
   // Get LUKSO provider directly and ensure it has the request method
-  const provider = window.lukso as Required<Pick<LuksoProvider, 'request'>>;
+  const provider = window.lukso as LuksoProvider & { request: NonNullable<LuksoProvider['request']> };
 
   // Ensure address is lowercase
   const normalizedAddress = address.toLowerCase() as `0x${string}`;
   
   // Create a signer that exactly matches XMTP's requirements
   return {
-    // Use SCW type since LUKSO UP is a smart contract wallet
-    type: "SCW" as const,
+    // Use EOA type since XMTP doesn't have a verifier for SCW signatures
+    type: "EOA" as const,
     
     // Return the blockchain address identifier in the exact format XMTP expects
     getIdentifier: () => ({
@@ -396,37 +402,31 @@ export const createDirectLuksoSigner = (
       console.log("Direct LUKSO signer: signMessage called with", message);
       
       try {
-        // First try eth_sign as recommended by LUKSO docs
+        // First try personal_sign as it's more widely supported
         try {
-          const signature = await provider.request({
-            method: 'eth_sign',
-            params: [normalizedAddress, message]
-          });
-          console.log("Direct LUKSO signature obtained via eth_sign:", signature);
-          return toBytes(signature as `0x${string}`);
-        } catch (ethSignError) {
-          console.log("eth_sign failed, falling back to personal_sign:", ethSignError);
-          
-          // Fallback to personal_sign if eth_sign fails
           const signature = await provider.request({
             method: 'personal_sign',
             params: [message, normalizedAddress]
           });
-          
           console.log("Direct LUKSO signature obtained via personal_sign:", signature);
+          return toBytes(signature as `0x${string}`);
+        } catch (personalSignError) {
+          console.log("personal_sign failed, falling back to eth_sign:", personalSignError);
+          
+          // Fallback to eth_sign if personal_sign fails
+          const signature = await provider.request({
+            method: 'eth_sign',
+            params: [normalizedAddress, message]
+          });
+          
+          console.log("Direct LUKSO signature obtained via eth_sign:", signature);
           return toBytes(signature as `0x${string}`);
         }
       } catch (error) {
         console.error("Error signing message with LUKSO provider:", error);
         throw error;
       }
-    },
-
-    // Add chain ID support for LUKSO mainnet
-    getChainId: () => BigInt(42),
-
-    // Add block number support
-    getBlockNumber: () => BigInt(0)
+    }
   };
 };
 
