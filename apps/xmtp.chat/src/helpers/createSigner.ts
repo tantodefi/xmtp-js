@@ -393,14 +393,26 @@ export const createDirectLuksoSigner = (
       console.log("Direct LUKSO signer: signMessage called with", message);
       
       try {
-        // Use personal_sign which UP/LUKSO supports
-        const signature = await provider.request({
-          method: 'personal_sign',
-          params: [message, normalizedAddress]
-        });
-        
-        console.log("Direct LUKSO signature obtained:", signature);
-        return toBytes(signature as `0x${string}`);
+        // First try eth_sign as recommended by LUKSO docs
+        try {
+          const signature = await provider.request({
+            method: 'eth_sign',
+            params: [normalizedAddress, message]
+          });
+          console.log("Direct LUKSO signature obtained via eth_sign:", signature);
+          return toBytes(signature as `0x${string}`);
+        } catch (ethSignError) {
+          console.log("eth_sign failed, falling back to personal_sign:", ethSignError);
+          
+          // Fallback to personal_sign if eth_sign fails
+          const signature = await provider.request({
+            method: 'personal_sign',
+            params: [message, normalizedAddress]
+          });
+          
+          console.log("Direct LUKSO signature obtained via personal_sign:", signature);
+          return toBytes(signature as `0x${string}`);
+        }
       } catch (error) {
         console.error("Error signing message with LUKSO provider:", error);
         throw error;
