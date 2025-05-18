@@ -367,42 +367,46 @@ export const createMinimalSigner = (
 export const createDirectLuksoSigner = (
   address: `0x${string}`,
 ): Signer => {
-  if (!window.lukso) {
-    throw new Error("LUKSO provider not available");
+  if (!window.lukso || typeof window.lukso.request !== 'function') {
+    throw new Error("LUKSO provider not available or missing request method");
   }
   
-  // Get LUKSO provider directly
-  const provider = window.lukso;
+  // Get LUKSO provider directly and ensure it has the request method
+  const provider = window.lukso as { request: (args: { method: string; params?: any[] }) => Promise<any> };
 
   // Ensure address is lowercase
-  const normalizedAddress = address.toLowerCase();
+  const normalizedAddress = address.toLowerCase() as `0x${string}`;
   
-  // Important - define these properties directly in the object literal
-  // Do not use methods or computed properties to avoid validation issues
-  const signer: Signer = {
-    type: "EOA",
-    getIdentifier: async function() {
-      console.log("Direct LUKSO signer: getIdentifier called");
-      return {
-        identifierKind: "Ethereum",
-        identifier: normalizedAddress
-      };
-    },
-    signMessage: async function(message) {
+  // Create a signer that exactly matches XMTP's requirements
+  return {
+    // Must be exactly "EOA" for standard wallets
+    type: "EOA" as const,
+    
+    // Return the blockchain address identifier in the exact format XMTP expects
+    getIdentifier: () => ({
+      identifierKind: "Ethereum" as const,
+      identifier: normalizedAddress,
+    }),
+    
+    // Sign a message and return bytes
+    signMessage: async (message: string): Promise<Uint8Array> => {
       console.log("Direct LUKSO signer: signMessage called with", message);
       
-      // Use personal_sign which UP/LUKSO supports
-      const signature = await provider.request({
-        method: 'personal_sign',
-        params: [message, normalizedAddress]
-      });
-      
-      console.log("Direct LUKSO signature obtained:", signature);
-      return toBytes(signature as `0x${string}`);
+      try {
+        // Use personal_sign which UP/LUKSO supports
+        const signature = await provider.request({
+          method: 'personal_sign',
+          params: [message, normalizedAddress]
+        });
+        
+        console.log("Direct LUKSO signature obtained:", signature);
+        return toBytes(signature as `0x${string}`);
+      } catch (error) {
+        console.error("Error signing message with LUKSO provider:", error);
+        throw error;
+      }
     }
   };
-  
-  return signer;
 };
 
 /* --------------- SIGNERS FOR LUKSO --------------- */
