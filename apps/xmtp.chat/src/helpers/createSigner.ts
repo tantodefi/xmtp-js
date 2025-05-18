@@ -386,44 +386,102 @@ export const createDirectLuksoSigner = (
   // Ensure address is lowercase
   const normalizedAddress = address.toLowerCase() as `0x${string}`;
   
+  console.log("Creating LUKSO signer with details:", {
+    address: normalizedAddress,
+    providerType: provider.isLukso ? "LUKSO" : "Unknown",
+    providerMethods: Object.keys(provider).filter(key => typeof provider[key] === 'function'),
+    chainId: provider.chainId,
+    networkVersion: provider.networkVersion
+  });
+  
   // Create a signer that exactly matches XMTP's requirements
   return {
     // Use EOA type since XMTP doesn't have a verifier for SCW signatures
     type: "EOA" as const,
     
     // Return the blockchain address identifier in the exact format XMTP expects
-    getIdentifier: () => ({
-      identifierKind: "Ethereum" as const,
-      identifier: normalizedAddress,
-    }),
+    getIdentifier: () => {
+      const identifier = {
+        identifierKind: "Ethereum" as const,
+        identifier: normalizedAddress,
+      };
+      console.log("LUKSO signer getIdentifier called:", identifier);
+      return identifier;
+    },
     
     // Sign a message and return bytes
     signMessage: async (message: string): Promise<Uint8Array> => {
-      console.log("Direct LUKSO signer: signMessage called with", message);
+      console.log("Direct LUKSO signer: signMessage called with details:", {
+        messageType: message.startsWith("XMTP") ? "XMTP" : "Standard",
+        messageLength: message.length,
+        messagePrefix: message.substring(0, 50) + "...",
+        isXMTPAuth: message === "XMTP Authorization",
+        isInboxAuth: message.startsWith("XMTP : Authenticate to inbox"),
+        address: normalizedAddress
+      });
       
       try {
-        // First try personal_sign as it's more widely supported
-        try {
+        // For XMTP authorization messages, we need to handle them specially
+        if (message === "XMTP Authorization") {
+          console.log("Handling XMTP Authorization message");
           const signature = await provider.request({
             method: 'personal_sign',
             params: [message, normalizedAddress]
           });
-          console.log("Direct LUKSO signature obtained via personal_sign:", signature);
-          return toBytes(signature as `0x${string}`);
-        } catch (personalSignError) {
-          console.log("personal_sign failed, falling back to eth_sign:", personalSignError);
-          
-          // Fallback to eth_sign if personal_sign fails
-          const signature = await provider.request({
-            method: 'eth_sign',
-            params: [normalizedAddress, message]
+          console.log("XMTP Authorization signature details:", {
+            signature,
+            signatureLength: signature.length,
+            signatureType: typeof signature,
+            address: normalizedAddress
           });
-          
-          console.log("Direct LUKSO signature obtained via eth_sign:", signature);
           return toBytes(signature as `0x${string}`);
         }
+
+        // For inbox authentication messages, we need to handle the format differently
+        if (message.startsWith("XMTP : Authenticate to inbox")) {
+          console.log("Handling inbox authentication message");
+          // Extract the actual message content after the prefix
+          const actualMessage = message.split("\n\n")[1];
+          console.log("Inbox authentication message details:", {
+            originalLength: message.length,
+            extractedLength: actualMessage.length,
+            extractedPrefix: actualMessage.substring(0, 50) + "..."
+          });
+          
+          const signature = await provider.request({
+            method: 'personal_sign',
+            params: [actualMessage, normalizedAddress]
+          });
+          console.log("Inbox authentication signature details:", {
+            signature,
+            signatureLength: signature.length,
+            signatureType: typeof signature,
+            address: normalizedAddress
+          });
+          return toBytes(signature as `0x${string}`);
+        }
+
+        // For all other messages, use standard signing
+        console.log("Handling standard message");
+        const signature = await provider.request({
+          method: 'personal_sign',
+          params: [message, normalizedAddress]
+        });
+        console.log("Standard message signature details:", {
+          signature,
+          signatureLength: signature.length,
+          signatureType: typeof signature,
+          address: normalizedAddress
+        });
+        return toBytes(signature as `0x${string}`);
       } catch (error) {
-        console.error("Error signing message with LUKSO provider:", error);
+        console.error("Error signing message with LUKSO provider:", {
+          error,
+          errorMessage: (error as Error).message,
+          errorStack: (error as Error).stack,
+          messageType: message.startsWith("XMTP") ? "XMTP" : "Standard",
+          address: normalizedAddress
+        });
         throw error;
       }
     }
