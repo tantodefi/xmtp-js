@@ -71,6 +71,33 @@ export function XMTPConnectButton({ onClick, disabled, walletConnected }: { onCl
 
       console.log("XMTPConnectButton: LUKSO UP browser extension detected, attempting to connect...");
 
+      // Ensure WASM bindings are loaded before proceeding
+      try {
+        console.log("XMTPConnectButton: Ensuring WASM bindings are loaded");
+
+        // Check if WASM is already loaded
+        const wasmStatus = (window as any).wasmLoadingStatus || { attempted: false, successful: false };
+
+        if (!wasmStatus.successful) {
+          console.log("XMTPConnectButton: WASM not yet loaded, attempting to load");
+          try {
+            // Try to load WASM bindings
+            await import('@xmtp/wasm-bindings');
+            console.log("XMTPConnectButton: Successfully loaded WASM bindings");
+            (window as any).wasmLoadingStatus = { attempted: true, successful: true, error: null };
+          } catch (wasmError) {
+            console.error("XMTPConnectButton: Failed to load WASM bindings:", wasmError);
+            throw new Error(`WASM bindings could not be loaded: ${(wasmError as Error)?.message || 'Unknown error'}`);
+          }
+        } else {
+          console.log("XMTPConnectButton: WASM bindings already loaded");
+        }
+      } catch (wasmError) {
+        console.error("XMTPConnectButton: WASM preloading error:", wasmError);
+        handleXmtpError(wasmError);
+        return;
+      }
+
       // First, request accounts from the LUKSO provider
       if (typeof window.lukso.request === 'function') {
         try {
@@ -214,9 +241,25 @@ export function XMTPConnectButton({ onClick, disabled, walletConnected }: { onCl
     if (err?.name === "SwitchChainNotSupportedError" ||
       (typeof err?.message === 'string' && err.message.includes('does not support programmatic chain switching'))) {
       setError(new Error('Universal Profile does not support programmatic chain switching. Please switch to the correct network in your wallet and try again.'));
-    } else {
+    }
+    else if (typeof err?.message === 'string' && err.message.includes('WASM')) {
+      console.error("WASM loading issue detected:", err);
+      setError(new Error('XMTP WASM libraries failed to load. This may be due to browser security settings or network issues. Try refreshing the page or try a different browser.'));
+    }
+    else if (typeof err?.message === 'string' && err.message.includes('worker error')) {
+      console.error("Worker error detected:", err);
+      setError(new Error('XMTP worker failed to initialize. This is likely a temporary issue. Please try again in a few moments.'));
+    }
+    else if (typeof err?.message === 'string' && err.message.includes('Unknown signer')) {
+      console.error("Unknown signer error detected:", err);
+      setError(new Error('Universal Profile is not recognized as a valid XMTP signer. Please make sure you have the latest UP Browser Extension installed.'));
+    }
+    else {
       setError(err instanceof Error ? err : new Error(String(err)));
     }
+
+    // Always set connecting to false
+    setIsConnecting(false);
   };
 
   // Determine button state and tooltip

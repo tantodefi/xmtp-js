@@ -210,6 +210,29 @@ export const createSCWSigner = (
     throw new Error("LUKSO provider not available or missing request method");
   }
 
+  // Get the current block number and cache it
+  let cachedBlockNumber: bigint = BigInt(0);
+  
+  // Try to get the initial block number
+  try {
+    if (window.lukso && typeof window.lukso.request === 'function') {
+      window.lukso.request({
+        method: 'eth_blockNumber',
+        params: []
+      }).then((blockNumberHex) => {
+        if (blockNumberHex) {
+          cachedBlockNumber = BigInt(blockNumberHex as string);
+          console.log(`Cached block number for SCW signer: ${cachedBlockNumber}`);
+        }
+      }).catch(error => {
+        console.warn("Error pre-fetching block number:", error);
+      });
+    }
+  } catch (err) {
+    console.warn("Could not initiate block number prefetch:", err);
+  }
+
+  // Create the signer with all required SCW methods
   return {
     // Must be exactly "SCW" for Smart Contract Wallets
     type: "SCW" as const,
@@ -243,10 +266,15 @@ export const createSCWSigner = (
     // Required for SCW signers: return the chain ID
     getChainId: () => {
       return chainIdBigInt;
-    }
+    },
     
-    // Remove getBlockNumber for now as it's optional and causing type errors
-    // XMTP will use the latest block number if this method is not provided
+    // Optional: Get block number for signature verification
+    // Note: This must return a bigint directly, not a Promise<bigint>
+    getBlockNumber: () => {
+      // Return the cached block number immediately
+      // This avoids the Promise return type issue
+      return cachedBlockNumber;
+    }
   };
 };
 

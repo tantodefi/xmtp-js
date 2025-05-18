@@ -160,17 +160,27 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
             hasDbEncryptionKey: !!dbEncryptionKey,
             codecsCount: 5
           });
-          
+
           try {
             // Check if WASM loading was successful
             const wasmStatus = (window as any).wasmLoadingStatus || { attempted: false, successful: false, error: null };
             console.log("XMTP WASM loading status:", wasmStatus);
-            
+
             // If WASM loading failed, we need to handle it
             if (wasmStatus.attempted && !wasmStatus.successful) {
-              console.warn("WASM loading was not successful, client creation may fail");
+              console.warn("WASM loading was not successful, attempting to load WASM dynamically");
+
+              try {
+                // Try to dynamically load WASM when needed
+                await import('@xmtp/wasm-bindings');
+                console.log("Successfully loaded WASM bindings dynamically");
+                (window as any).wasmLoadingStatus = { attempted: true, successful: true, error: null };
+              } catch (wasmError) {
+                console.error("Failed to load WASM bindings:", wasmError);
+                throw new Error(`WASM bindings could not be loaded: ${(wasmError as Error)?.message || 'Unknown error'}`);
+              }
             }
-            
+
             // Set up worker error detection
             let workerErrorOccurred = false;
             const detectWorkerError = () => {
@@ -178,51 +188,66 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
                 workerErrorOccurred = true;
                 return true;
               }
-              
+
               // Check for console errors related to the worker
               const consoleErrors = (window as any).__xmtp_console_errors || [];
-              if (consoleErrors.some((err: string) => 
-                err.includes('Worker error') || 
+              if (consoleErrors.some((err: string) =>
+                err.includes('Worker error') ||
                 err.includes('ClientWorkerClass')
               )) {
                 workerErrorOccurred = true;
                 return true;
               }
-              
+
               return false;
             };
-            
+
             // Initialize console error tracking if not already set up
             if (!(window as any).__xmtp_console_errors) {
               (window as any).__xmtp_console_errors = [];
               const originalConsoleError = console.error;
-              console.error = function(...args: any[]) {
+              console.error = function (...args: any[]) {
                 // Call the original console.error
                 originalConsoleError.apply(console, args);
-                
+
                 // Store the error message
-                const errorMessage = args.map(arg => 
+                const errorMessage = args.map(arg =>
                   typeof arg === 'string' ? arg : JSON.stringify(arg)
                 ).join(' ');
                 (window as any).__xmtp_console_errors.push(errorMessage);
               };
             }
-            
+
+            // Enhanced client creation for Smart Contract Wallets
+            let clientOptions = {
+              env,
+              loggingLevel: loggingLevel || 'debug', // Use debug for more verbose logs
+              dbEncryptionKey,
+              codecs: [
+                new ReactionCodec(),
+                new ReplyCodec(),
+                new RemoteAttachmentCodec(),
+                new TransactionReferenceCodec(),
+                new WalletSendCallsCodec(),
+              ],
+            };
+
+            // Log whether this is an SCW signer
+            const isSCWSigner = signer.type === 'SCW';
+            console.log(`Creating client with ${isSCWSigner ? 'SCW' : 'standard'} signer`);
+
+            if (isSCWSigner) {
+              console.log("Using SCW signer with the following properties:", {
+                hasGetChainId: typeof (signer as any).getChainId === 'function',
+                chainId: typeof (signer as any).getChainId === 'function' ? (signer as any).getChainId() : 'unavailable',
+                hasGetBlockNumber: typeof (signer as any).getBlockNumber === 'function',
+              });
+            }
+
             // Create a promise with a timeout to handle potential WASM worker errors
             const clientPromise = Promise.race([
               // Attempt to create the client
-              Client.create(signer, {
-                env,
-                loggingLevel,
-                dbEncryptionKey,
-                codecs: [
-                  new ReactionCodec(),
-                  new ReplyCodec(),
-                  new RemoteAttachmentCodec(),
-                  new TransactionReferenceCodec(),
-                  new WalletSendCallsCodec(),
-                ],
-              }),
+              Client.create(signer, clientOptions),
               // Set a timeout to prevent hanging
               new Promise((_, reject) => {
                 // Check for worker errors periodically
@@ -231,9 +256,9 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
                     clearInterval(errorCheckInterval);
                     reject(new Error('XMTP client creation failed due to WASM worker error'));
                   }
-                }, 200); // Check more frequently
-                
-                // Set a longer timeout for client creation
+                }, 500); // Check less frequently to reduce overhead
+
+                // Set a longer timeout for client creation, especially for SCW
                 setTimeout(() => {
                   clearInterval(errorCheckInterval);
                   if (workerErrorOccurred) {
@@ -241,12 +266,44 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
                   } else {
                     reject(new Error('XMTP client creation timed out'));
                   }
-                }, 20000); // 20 second timeout to give more time for client creation
+                }, 60000); // 60 second timeout for SCW which can be slower
               })
             ]);
-            
-            // Wait for either successful client creation or timeout
-            xmtpClient = await clientPromise as Client;
+
+            try {
+              // Wait for either successful client creation or timeout
+              xmtpClient = await clientPromise as Client;
+            } catch (clientError) {
+              console.error("Client creation failed in first attempt:", clientError);
+
+              if (isSCWSigner) {
+                console.log("Attempting alternative approach for SCW signer...");
+                // For SCW signers, we could try different options
+
+                // Specific error handling for SCW
+                if (clientError instanceof Error &&
+                  (clientError.message.includes("worker error") ||
+                    clientError.message.includes("Unknown signer") ||
+                    clientError.message.includes("timed out"))) {
+
+                  // Log details about the current SCW signer
+                  console.log("SCW signer details for debugging:", {
+                    type: signer.type,
+                    identifierType: typeof signer.getIdentifier === 'function' ?
+                      (await signer.getIdentifier())?.identifierKind : 'unknown',
+                    hasChainId: typeof (signer as any).getChainId === 'function',
+                    chainIdValue: typeof (signer as any).getChainId === 'function' ?
+                      (signer as any).getChainId() : 'unknown'
+                  });
+
+                  // Throw the original error to be handled by the caller
+                  throw clientError;
+                }
+              }
+
+              // Re-throw the original error if no special handling applied
+              throw clientError;
+            }
 
             // Log client creation success with safe property access
             console.log("XMTP client created successfully", {
@@ -255,20 +312,20 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
               // Use the address from the identifier instead
               address: identifier?.identifier ? `${identifier.identifier.substring(0, 10)}...` : 'unknown',
             });
-            
+
             // Set client in state with detailed logging
             console.log("About to set client in state", {
               hasClient: !!xmtpClient,
               hasInboxId: !!xmtpClient?.inboxId,
             });
-            
+
             // Set the client in state
             setClient(xmtpClient);
             console.log("Client successfully set in state");
-            
+
             // Set a flag in localStorage to indicate successful client creation
             localStorage.setItem('xmtp_client_created', 'true');
-            
+
             return xmtpClient;
           } catch (e) {
             console.error("Error creating XMTP client:", e);

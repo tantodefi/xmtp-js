@@ -111,46 +111,103 @@ export function LuksoProfile({ address = DEFAULT_ADDRESS, onXmtpAddressFound, cu
 
         if (existingData && existingData !== '0x') {
           try {
-            const decodedData = ethers.toUtf8String(existingData);
-            const metadata = JSON.parse(decodedData);
+            // First, try to handle as JSON string (standard format)
+            try {
+              const decodedData = ethers.toUtf8String(existingData);
+              const metadata = JSON.parse(decodedData);
 
-            // Check for direct address field first (current format)
-            if (metadata.address) {
-              console.log('Found XMTP address in UP metadata:', metadata.address);
+              // Check for direct address field first (current format)
+              if (metadata.address) {
+                console.log('Found XMTP address in UP metadata:', metadata.address);
 
-              // Update the profile data with the XMTP address
-              if (isMounted) {
-                setProfileData(prev => ({
-                  ...prev,
-                  xmtpAddress: metadata.address
-                }));
+                // Update the profile data with the XMTP address
+                if (isMounted) {
+                  setProfileData(prev => ({
+                    ...prev,
+                    xmtpAddress: metadata.address
+                  }));
 
-                // Notify parent component
-                if (onXmtpAddressFound) {
-                  onXmtpAddressFound(metadata.address);
+                  // Notify parent component
+                  if (onXmtpAddressFound) {
+                    onXmtpAddressFound(metadata.address);
+                  }
+                }
+
+                return metadata.address;
+              }
+              // Fallback to the nested xmtp.address format (in case that format is used)
+              else if (metadata.xmtp?.address) {
+                console.log('Found XMTP address in UP metadata (nested format):', metadata.xmtp.address);
+
+                // Update the profile data with the XMTP address
+                if (isMounted) {
+                  setProfileData(prev => ({
+                    ...prev,
+                    xmtpAddress: metadata.xmtp.address
+                  }));
+
+                  // Notify parent component
+                  if (onXmtpAddressFound) {
+                    onXmtpAddressFound(metadata.xmtp.address);
+                  }
+                }
+
+                return metadata.xmtp.address;
+              }
+            } catch (jsonError) {
+              console.log('LSP data is not in JSON format, trying alternative extraction methods');
+
+              // LSP data might be directly an Ethereum address encoded in bytes
+              // Try to handle hex-encoded Ethereum address format
+              if (existingData.length >= 42) {
+                // Check if this is a hex-encoded address (starts with 0x and is 42 chars)
+                const possibleAddress = existingData.replace(/^0x0+/, '0x'); // Remove leading zeros after 0x
+
+                if (/^0x[0-9a-fA-F]{40}$/.test(possibleAddress)) {
+                  console.log('Found XMTP address in UP metadata as direct hex:', possibleAddress);
+
+                  if (isMounted) {
+                    setProfileData(prev => ({
+                      ...prev,
+                      xmtpAddress: possibleAddress.toLowerCase()
+                    }));
+
+                    if (onXmtpAddressFound) {
+                      onXmtpAddressFound(possibleAddress.toLowerCase());
+                    }
+                  }
+
+                  return possibleAddress.toLowerCase();
+                } else {
+                  // Try to extract address from the LSP data by looking for patterns
+                  // Common pattern: data contains a 20-byte address somewhere
+                  const hexData = existingData.slice(2); // Remove 0x prefix
+
+                  // Scan through the data in 40-char chunks (20 bytes) to find possible ETH address
+                  for (let i = 0; i < hexData.length - 40; i += 2) {
+                    const candidateAddr = '0x' + hexData.substring(i, i + 40);
+                    // Basic validation - check if it's a valid hex string
+                    if (/^0x[0-9a-fA-F]{40}$/.test(candidateAddr)) {
+                      console.log('Found potential ETH address in UP XMTP data:', candidateAddr);
+
+                      if (isMounted) {
+                        setProfileData(prev => ({
+                          ...prev,
+                          xmtpAddress: candidateAddr.toLowerCase()
+                        }));
+
+                        if (onXmtpAddressFound) {
+                          onXmtpAddressFound(candidateAddr.toLowerCase());
+                        }
+                      }
+
+                      return candidateAddr.toLowerCase();
+                    }
+                  }
                 }
               }
 
-              return metadata.address;
-            }
-            // Fallback to the nested xmtp.address format (in case that format is used)
-            else if (metadata.xmtp?.address) {
-              console.log('Found XMTP address in UP metadata (nested format):', metadata.xmtp.address);
-
-              // Update the profile data with the XMTP address
-              if (isMounted) {
-                setProfileData(prev => ({
-                  ...prev,
-                  xmtpAddress: metadata.xmtp.address
-                }));
-
-                // Notify parent component
-                if (onXmtpAddressFound) {
-                  onXmtpAddressFound(metadata.xmtp.address);
-                }
-              }
-
-              return metadata.xmtp.address;
+              console.log('Could not extract XMTP address from UP data');
             }
           } catch (parseError) {
             console.error('Error parsing XMTP metadata:', parseError);
