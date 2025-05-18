@@ -41,12 +41,12 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
     setProfileLoaded(true);
   };
 
-  // Send a message to the grid owner via XMTP using an ephemeral client
+  // Send a message to the grid owner via XMTP using an SCW client
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSending(true);
     setError(null);
-    
+
     console.log('Starting message send process to grid owner');
     console.log('Grid owner address:', gridOwnerAddress);
     console.log('XMTP address:', xmtpAddress);
@@ -113,336 +113,80 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
       // 3. Prepare the message with sender info
       const messageWithSenderInfo = `Message from ${upAddress || 'LUKSO UP User'}:\n\n${message}\n\n---\n${senderInfo}\nSent via XMTP.chat`;
       console.log('Prepared message with sender info:', messageWithSenderInfo);
-      console.log('Message with sender info:', messageWithSenderInfo);
 
-      // 1. Create a simple ephemeral signer for XMTP
-      console.log('Creating ephemeral signer for message to grid owner');
-      const { createEphemeralSigner } = await import('@/helpers/createSigner');
-      
-      // Use a consistent private key based on a combination of factors to ensure
-      // the same sender is used for all messages to the same grid owner
-      // This helps with conversation threading and discovery
-      let ephemeralPrivateKey: `0x${string}`;
-      
-      // Generate a new random private key for each message
-      // This is more reliable than trying to store and retrieve the key
-      ephemeralPrivateKey = `0x${Array.from(crypto.getRandomValues(new Uint8Array(32)))
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('')}` as `0x${string}`;
-      
-      console.log('Generated new ephemeral private key for message sending');
-      
-      const ephemeralSigner = createEphemeralSigner(ephemeralPrivateKey);
-
-      // 2. Create an ephemeral XMTP client
-      console.log('Creating ephemeral XMTP client');
-      const { Client } = await import('@xmtp/browser-sdk');
-
-      // Have the user sign a message to authorize the ephemeral client
       if (upAddress && window.lukso && typeof window.lukso.request === 'function') {
-        const authMessage = `I am authorizing this app to send a message on my behalf via XMTP.\n\nThis does not give the app access to my Universal Profile or any assets.\n\nTimestamp: ${Date.now()}`;
+        // Use SCW signer with the Universal Profile
+        console.log('Creating SCW signer for message to grid owner');
 
-        console.log('Requesting user to sign authorization message');
-        await window.lukso.request({
-          method: 'personal_sign',
-          params: [authMessage, upAddress]
-        });
-        console.log('User signed authorization message');
-      }
+        // Get the chain ID
+        const chainIdHex = await window.lukso.request({
+          method: 'eth_chainId',
+          params: []
+        }) as string;
 
-      // Create the client with proper configuration
-      console.log('Creating XMTP client with ephemeral signer');
-      const client = await Client.create(ephemeralSigner, { 
-        env: 'dev'
-        // Use only valid options supported by the SDK version
-      });
-      console.log('XMTP client created successfully:', client);
-      console.log('Ephemeral XMTP client created successfully');
+        // Convert hex chain ID to number
+        const chainId = parseInt(chainIdHex, 16);
+        console.log(`Current chain ID: ${chainId}`);
 
-      // 3. Open a conversation with the grid owner
-      console.log(`Opening conversation with grid owner at XMTP address: ${xmtpAddress}`);
-      
-      // Instead of using a custom conversationId, we'll use the standard approach
-      // that the XMTP protocol uses for direct messages
-      console.log('Using standard XMTP DM format without custom identifiers');
-      
-      // The key insight is that we need to use the same client for sending and receiving
-      // We'll check if we already have a client in localStorage that we can reuse
-      console.log('Checking for existing XMTP client keys in localStorage');
-      
-      // Try to create a new conversation or find an existing one
-      let conversation;
-      
-      console.log('Creating or finding conversation with grid owner at XMTP address:', xmtpAddress);
-      
-      try {
-        // First, check if we already have a conversation with this recipient
-        console.log('Checking if conversation already exists');
-        const conversationsApi = client.conversations as any;
-        
-        // Try to sync conversations first to ensure we have the latest data
-        try {
-          if (typeof conversationsApi.syncAll === 'function') {
-            await conversationsApi.syncAll();
-          } else if (typeof conversationsApi.sync === 'function') {
-            await conversationsApi.sync();
-          }
-          console.log('Conversations synced successfully');
-        } catch (syncError) {
-          console.warn('Error syncing conversations, but continuing:', syncError);
-        }
-        
-        // List all conversations
-        const conversations = await conversationsApi.list();
-        console.log(`Found ${conversations.length} existing conversations`);
-        
-        // Look for an existing conversation with this recipient using multiple criteria
-        const existingConvo = conversations.find((c: any) => {
-          // Check if the peer address matches
-          const peerAddressMatch = c.peerAddress?.toLowerCase() === xmtpAddress.toLowerCase();
-          
-          // Check if the conversation has our standard ID in context or metadata
-          const hasStandardId = c.context?.conversationId === conversationId ||
-                               c.metadata?.conversationId === conversationId;
-          
-          // Check if it has our special type
-          // Don't check for custom topic as we're using standard DM format
-          const hasSpecialType = c.metadata?.conversationType === 'dm' ||
-                               c.metadata?.isGridOwnerMessage === 'true';
-          
-          return peerAddressMatch || hasStandardId || hasSpecialType;
+        // Import and create the SCW signer
+        const { createSCWSigner } = await import('@/helpers/createSigner');
+        const scwSigner = createSCWSigner(upAddress as `0x${string}`, chainId);
+
+        // Create an XMTP client with the SCW signer
+        console.log('Creating XMTP client with SCW signer');
+        const { Client } = await import('@xmtp/browser-sdk');
+
+        // Create the client
+        const client = await Client.create(scwSigner, {
+          env: 'dev'
         });
-        
-        if (existingConvo) {
-          console.log('Found existing conversation with grid owner:', existingConvo);
-          conversation = existingConvo;
-        } else {
-          // No existing conversation found, create a new one using the proper method
-          console.log('No existing conversation found, creating new one with identifier');
-                   // No existing conversation found, create a new one using the proper method
-          console.log('No existing conversation found, creating new one with identifier');
-          
-          // Create the conversation exactly like the regular app does
-          // This ensures compatibility and discoverability
-          try {
-            console.log('Creating conversation with the same approach as the regular app');
-            
-            // First try newDmWithIdentifier (preferred method)
-            if (typeof conversationsApi.newDmWithIdentifier === 'function') {
-              // Use the exact same format as the app's CreateDmModal component
-              conversation = await conversationsApi.newDmWithIdentifier({
-                identifier: xmtpAddress.toLowerCase(),
-                identifierKind: 'Ethereum'
-              });
-              console.log('Successfully created conversation with newDmWithIdentifier:', conversation);
-            }
-            // Fallback to newDm if needed
-            else if (typeof conversationsApi.newDm === 'function') {
-              // Use the exact same format as the app's regular DM creation
-              conversation = await conversationsApi.newDm(xmtpAddress);
-              console.log('Successfully created conversation with newDm:', conversation);
-            }
-            // Last resort - try createConversation
-            else if (typeof conversationsApi.createConversation === 'function') {
-              conversation = await conversationsApi.createConversation({
-                peerAddress: xmtpAddress
-              });
-              console.log('Successfully created conversation with createConversation:', conversation);
-            }
-            else {
-              throw new Error('No supported conversation creation method found');
-            }
-          } catch (methodError) {
-            console.error('Error creating conversation:', methodError);
-            throw methodError; // Re-throw to be caught by outer try/catch
-          }
-        }
-      } catch (conversationError) {
-        console.error('Error creating or finding conversation:', conversationError);
-        // Create a mock conversation object as a last resort fallback
-        console.error('All conversation creation methods failed, creating a mock conversation');
-        conversation = {
-          send: async (content: string) => {
-            console.log('Mock conversation send:', content);
-            console.log('Using mock conversation - this is not ideal, message may not be delivered');
-            return { id: `mock-message-id-${Date.now()}` };
-          }
-        };
-      }
-      
-      // 4. Send the message with proper content type and metadata
-      console.log('Sending message to grid owner');
-      try {
-        // Send the message exactly like the regular app does
-        // The app uses a simple conversation.send(message) call without additional parameters
-        console.log('Preparing to send message to grid owner');
-        
-        // Keep the message format simple and standard
-        // This ensures compatibility with all XMTP clients
-        // Don't add any special formatting that might confuse the client
-        const messageWithMetadata = messageWithSenderInfo;
-        
-        // Send the message with the conversation object using the same approach as the regular app
-        console.log('Sending message to grid owner with conversation:', conversation);
-        
-        // Send the message with a timeout to ensure we don't wait too long
-        const sendPromise = conversation.send(messageWithMetadata);
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Send operation timed out but may have succeeded')), 10000);
+        console.log('XMTP client created successfully:', client);
+
+        // Open a conversation with the grid owner
+        console.log(`Opening conversation with grid owner at XMTP address: ${xmtpAddress}`);
+
+        // Create a new conversation using the proper API
+        const conversation = await client.conversations.newDm(xmtpAddress);
+        console.log('Conversation created:', conversation);
+
+        // Send the message
+        console.log('Sending message to grid owner');
+        await conversation.send(messageWithSenderInfo);
+        console.log('Message sent successfully');
+
+        setSent(true);
+        setMessage('');
+      } else {
+        // Fallback to ephemeral signer if no UP is available
+        console.log('No UP connected, using ephemeral signer for message to grid owner');
+
+        // Generate a new random private key
+        const ephemeralPrivateKey = `0x${Array.from(crypto.getRandomValues(new Uint8Array(32)))
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('')}` as `0x${string}`;
+
+        // Create an ephemeral signer
+        const { createEphemeralSigner } = await import('@/helpers/createSigner');
+        const ephemeralSigner = createEphemeralSigner(ephemeralPrivateKey);
+
+        // Create an XMTP client
+        console.log('Creating ephemeral XMTP client');
+        const { Client } = await import('@xmtp/browser-sdk');
+        const client = await Client.create(ephemeralSigner, {
+          env: 'dev'
         });
-        
-        // Race between send and timeout
-        const result = await Promise.race([sendPromise, timeoutPromise]);
-        console.log('Message sent successfully with metadata, result:', result);
-        
-        // Force a sync to ensure the message appears in the conversations list
-        try {
-          console.log('Forcing conversation sync after successful send');
-          const conversationsApi = client.conversations as any;
-          
-          // Try multiple sync methods with retries for better reliability
-          const syncMethods = [
-            { name: 'syncAllMessages', fn: conversationsApi.syncAllMessages },
-            { name: 'syncAll', fn: conversationsApi.syncAll },
-            { name: 'sync', fn: conversationsApi.sync }
-          ];
-          
-          // Try each sync method with retries
-          for (const method of syncMethods) {
-            if (typeof method.fn === 'function') {
-              console.log(`Trying sync method: ${method.name}`);
-              try {
-                await method.fn.call(conversationsApi);
-                console.log(`Sync with ${method.name} completed successfully`);
-                // Try a second time for better reliability
-                await new Promise(resolve => setTimeout(resolve, 500));
-                await method.fn.call(conversationsApi);
-                console.log(`Second ${method.name} sync completed`);
-                break;
-              } catch (e) {
-                console.warn(`Error with ${method.name} sync method:`, e);
-              }
-            }
-          }
-          
-          console.log('All sync attempts completed');
-        } catch (syncError) {
-          console.warn('Error during sync process, but message was still sent:', syncError);
-        }
-        
-        // Verify the conversation appears in the list
-        try {
-          console.log('Verifying conversation appears in the list');
-          const conversationsApi = client.conversations as any;
-          const conversations = await conversationsApi.list();
-          
-          // Look for our conversation using multiple criteria with standard XMTP formats
-          const ourConvo = conversations.find((c: any) => {
-            // Check if the peer address matches (most reliable method)
-            const peerAddressMatch = c.peerAddress?.toLowerCase() === xmtpAddress.toLowerCase();
-            
-            // Check if the conversation has our ID in context or metadata
-            const hasConversationId = c.context?.conversationId === conversationId ||
-                                     c.metadata?.conversationId === conversationId;
-            
-            // We're using standard DM format without custom topic
-            // so we don't need to check for a specific topic
-            
-            // Check if it has our special type
-            const hasSpecialType = c.metadata?.isGridOwnerMessage === 'true';
-            
-            // Log what we found for debugging
-            if (peerAddressMatch || hasConversationId || hasSpecialType) {
-              console.log('Found matching conversation:', { 
-                id: c.id,
-                peerAddressMatch,
-                hasConversationId,
-                hasSpecialType
-              });
-            }
-            
-            // Return true if any criteria match
-            return peerAddressMatch || hasConversationId || hasSpecialType;
-          });
-          
-          if (ourConvo) {
-            console.log('Successfully verified conversation appears in list:', ourConvo.id);
-            // Try to get messages from this conversation to confirm message delivery
-            if (typeof ourConvo.messages === 'function') {
-              try {
-                const messages = await ourConvo.messages();
-                console.log(`Found ${messages.length} messages in conversation:`, messages);
-              } catch (messagesError) {
-                console.warn('Error retrieving messages from conversation:', messagesError);
-              }
-            }
-          } else {
-            console.warn('Could not find our conversation in the list after sending');
-            
-            // Try a more aggressive approach to force conversation discovery
-            try {
-              console.log('Attempting to force conversation discovery...');
-              
-              // Try to create the conversation again with the same parameters
-              // This can sometimes help with discovery
-              if (typeof conversationsApi.newDmWithIdentifier === 'function') {
-                console.log('Attempting to recreate conversation to aid discovery');
-                // Use the exact same format as the app's CreateDmModal component
-                const rediscoveryConvo = await conversationsApi.newDmWithIdentifier({
-                  identifier: xmtpAddress.toLowerCase(),
-                  identifierKind: 'Ethereum'
-                });
-                console.log('Rediscovery conversation created:', rediscoveryConvo?.id);
-              }
-              
-              // Try multiple aggressive syncs with delays
-              const syncMethods = ['syncAllMessages', 'syncAll', 'sync'];
-              for (const methodName of syncMethods) {
-                if (typeof conversationsApi[methodName] === 'function') {
-                  console.log(`Performing aggressive ${methodName} sync`);
-                  await conversationsApi[methodName]();
-                  await new Promise(resolve => setTimeout(resolve, 1000));
-                }
-              }
-              
-              // Try listing conversations again after aggressive sync
-              const refreshedConversations = await conversationsApi.list();
-              console.log(`After aggressive sync, found ${refreshedConversations.length} conversations`);
-              
-              // Check if our conversation is now visible
-              const foundAfterSync = refreshedConversations.some((c: any) => 
-                c.peerAddress?.toLowerCase() === xmtpAddress.toLowerCase()
-              );
-              
-              if (foundAfterSync) {
-                console.log('Successfully found conversation after aggressive sync!');
-              } else {
-                console.warn('Still could not find conversation after aggressive sync');
-              }
-            } catch (aggressiveSyncError) {
-              console.warn('Error during aggressive discovery process:', aggressiveSyncError);
-            }
-          }
-        } catch (verifyError) {
-          console.warn('Error verifying conversation in list:', verifyError);
-        }
-      } catch (error) {
-        // Type guard for the error
-        const sendError = error as Error;
-        console.warn('Send operation error or timeout, but message may have been sent:', sendError);
-        
-        // Check if it's a timeout error which means the message might still have been sent
-        if (sendError.message && sendError.message.includes('timed out but may have succeeded')) {
-          console.log('Assuming message was sent despite timeout');
-        } else {
-          // Rethrow other errors
-          throw sendError;
-        }
+
+        // Create a new conversation
+        const conversation = await client.conversations.newDm(xmtpAddress);
+        console.log('Conversation created with ephemeral signer:', conversation);
+
+        // Send the message
+        await conversation.send(messageWithSenderInfo);
+        console.log('Message sent successfully with ephemeral signer');
+
+        setSent(true);
+        setMessage('');
       }
-      
-      // 5. Show success message
-      setSent(true);
-      setMessage('');
     } catch (error) {
       console.error('Error sending message to grid owner:', error);
       setError(`Failed to send message: ${(error as Error).message || 'Unknown error'}`);
@@ -539,14 +283,14 @@ export const Welcome = () => {
   const [renderError, setRenderError] = useState<Error | null>(null);
   // XMTP hook must be at the top level
   const { initialize, initializing, client, disconnect: disconnectXMTP } = useXMTP();
-const navigate = useNavigate();
+  const navigate = useNavigate();
 
-// Forward to /conversations when XMTP client is loaded
-useEffect(() => {
-  if (client) {
-    navigate('/conversations', { replace: true });
-  }
-}, [client, navigate]);
+  // Forward to /conversations when XMTP client is loaded
+  useEffect(() => {
+    if (client) {
+      navigate('/conversations', { replace: true });
+    }
+  }, [client, navigate]);
 
   // Always show debug info at the top
   // const debugBlock = (
@@ -678,9 +422,9 @@ useEffect(() => {
         <>
           <MessageGridOwnerForm gridOwnerAddress={gridOwnerAddress} />
           <Paper withBorder p="md" radius="md" shadow="sm" w="100%" maw={500} mt="md">
-            <XMTPConnectButton 
-              disabled={!accounts[0] || !!client || initializing} 
-              walletConnected={!!accounts[0]} 
+            <XMTPConnectButton
+              disabled={!accounts[0] || !!client || initializing}
+              walletConnected={!!accounts[0]}
             />
             <Accordion w="100%" mt="md">
               <Accordion.Item value="other-options">

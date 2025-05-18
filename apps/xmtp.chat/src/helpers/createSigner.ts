@@ -188,75 +188,65 @@ export const createEOASigner = (
   };
 };
 
+/**
+ * Creates a Smart Contract Wallet signer for XMTP that works with LUKSO Universal Profile.
+ * This follows the XMTP SCW signer specification.
+ *
+ * @param address - The Universal Profile address
+ * @param chainId - The chain ID (LUKSO mainnet = 42, LUKSO testnet = 4201)
+ * @returns A Signer compatible with XMTP's SCW requirements
+ */
 export const createSCWSigner = (
   address: `0x${string}`,
-  walletClient: WalletClient,
-  chainId: bigint,
+  chainId: bigint | number,
 ): Signer => {
+  // Ensure the address is lowercase as required by XMTP
+  const normalizedAddress = address.toLowerCase() as `0x${string}`;
+  
+  // Ensure chainId is bigint
+  const chainIdBigInt = typeof chainId === 'number' ? BigInt(chainId) : chainId;
+  
+  if (!window.lukso || typeof window.lukso.request !== 'function') {
+    throw new Error("LUKSO provider not available or missing request method");
+  }
+
   return {
-    type: "SCW",
+    // Must be exactly "SCW" for Smart Contract Wallets
+    type: "SCW" as const,
+    
+    // Returns the blockchain address for this signer
     getIdentifier: () => ({
-      identifier: address.toLowerCase(),
-      identifierKind: "Ethereum",
+      identifierKind: "Ethereum" as const,
+      identifier: normalizedAddress,
     }),
-    signMessage: async (message: string) => {
+    
+    // Signs a message using the Universal Profile
+    signMessage: async (message: string): Promise<Uint8Array> => {
+      console.log("SCW signer signing message:", message);
+      
       try {
-        console.log("Attempting to sign message with SCW wallet:", message);
+        // Use the Universal Profile provider to sign the message
+        // We've already checked that window.lukso and request exist above
+        const signature = await window.lukso.request({
+          method: 'personal_sign',
+          params: [message, normalizedAddress]
+        });
         
-        // Directly use the walletClient to sign the message
-        try {
-          console.log("Trying direct walletClient.signMessage");
-          const signature = await walletClient.signMessage({
-            account: address,
-            message,
-          });
-          console.log("Signature with direct walletClient:", signature);
-          return toBytes(signature);
-        } catch (directSignError) {
-          console.warn("Direct signing failed:", directSignError);
-          
-          // Try to get the provider
-          let provider;
-          try {
-            if (typeof walletClient.transport === 'object' && walletClient.transport !== null) {
-              provider = walletClient.transport;
-            } else if ((walletClient as any).provider) {
-              provider = (walletClient as any).provider;
-            } else {
-              // Last resort - try window objects
-              provider = window.lukso || window.ethereum;
-            }
-          } catch (providerError) {
-            console.error("Error accessing provider:", providerError);
-          }
-          
-          if (!provider) {
-            console.error("No provider found, cannot sign message");
-            throw new Error("No provider found for signing");
-          }
-          
-          // Try personal_sign method as fallback
-          console.log("Trying personal_sign through provider");
-          try {
-            const signature = await provider.request({
-              method: 'personal_sign',
-              params: [message, address]
-            });
-            console.log("Signature with personal_sign:", signature);
-            return toBytes(signature as `0x${string}`);
-          } catch (personalSignError) {
-            console.error("All signing methods failed:", personalSignError);
-            throw personalSignError;
-          }
-        }
+        console.log("SCW signature obtained:", signature);
+        return toBytes(signature as `0x${string}`);
       } catch (error) {
-        console.error("Fatal signing error:", error);
+        console.error("Error signing message with SCW method:", error);
         throw error;
       }
     },
+    
+    // Required for SCW signers: return the chain ID
     getChainId: () => {
-      return chainId;
-    },
+      return chainIdBigInt;
+    }
+    
+    // Remove getBlockNumber for now as it's optional and causing type errors
+    // XMTP will use the latest block number if this method is not provided
   };
 };
 
