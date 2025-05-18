@@ -115,33 +115,22 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
       console.log('Prepared message with sender info:', messageWithSenderInfo);
 
       if (upAddress && window.lukso && typeof window.lukso.request === 'function') {
-        // Use SCW signer with the Universal Profile
-        console.log('Creating SCW signer for message to grid owner');
+        // Use direct LUKSO signer with the Universal Profile
+        console.log('Creating direct LUKSO signer for message to grid owner');
 
-        // Get the chain ID
-        const chainIdHex = await window.lukso.request({
-          method: 'eth_chainId',
-          params: []
-        }) as string;
+        // Import and create the direct LUKSO signer
+        const { createDirectLuksoSigner } = await import('@/helpers/createSigner');
 
-        // Convert hex chain ID to number
-        const chainId = parseInt(chainIdHex, 16);
-        console.log(`Current chain ID: ${chainId}`);
+        // Create direct LUKSO signer for the UP
+        const signer = createDirectLuksoSigner(upAddress as `0x${string}`);
 
-        // Import and create the SCW signer
-        const { createSCWSigner } = await import('@/helpers/createSigner');
-
-        // Create SCW signer for the UP
-        const scwSigner = createSCWSigner(upAddress as `0x${string}`, chainId);
-
-        console.log('SCW signer created:', {
-          type: scwSigner.type,
-          address: upAddress,
-          chainId: chainId
+        console.log('Direct LUKSO signer created:', {
+          type: signer.type,
+          address: upAddress
         });
 
-        // Create an XMTP client with the SCW signer
-        console.log('Creating XMTP client with SCW signer');
+        // Create an XMTP client with the direct LUKSO signer
+        console.log('Creating XMTP client with direct LUKSO signer');
         const { Client } = await import('@xmtp/browser-sdk');
 
         // Log additional diagnostic info about the underlying implementation
@@ -149,24 +138,22 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
           sdkVersion: (Client as any).VERSION || 'unknown',
           supportedChains: (Client as any).SUPPORTED_CHAIN_IDS || 'unknown',
           signer: {
-            type: scwSigner.type,
-            hasGetChainId: typeof (scwSigner as any).getChainId === 'function',
-            hasGetBlockNumber: typeof (scwSigner as any).getBlockNumber === 'function'
+            type: signer.type
           }
         });
 
         let client;
         try {
-          // Create client with SCW signer
-          console.log('Attempting to create client with SCW signer');
-          client = await Client.create(scwSigner, {
+          // Create client with direct LUKSO signer
+          console.log('Attempting to create client with direct LUKSO signer');
+          client = await Client.create(signer, {
             env: 'dev',
             loggingLevel: 'debug'
           });
-          console.log('XMTP client created successfully with SCW signer:', client);
+          console.log('XMTP client created successfully with direct LUKSO signer:', client);
         } catch (error) {
-          console.error('Error creating client with SCW signer:', error);
-          throw new Error('Failed to create XMTP client with SCW signer');
+          console.error('Error creating client with direct LUKSO signer:', error);
+          throw new Error('Failed to create XMTP client with direct LUKSO signer');
         }
 
         // Open a conversation with the grid owner

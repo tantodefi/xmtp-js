@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useXMTP } from "@/contexts/XMTPContext";
 import { useUpProvider } from "@/contexts/UpProviderContext";
 import { useState, useEffect, useRef } from "react";
-import { createSCWSigner } from '@/helpers/createSigner';
+import { createSCWSigner, createDirectLuksoSigner } from '@/helpers/createSigner';
 import { Client } from '@xmtp/browser-sdk';
 import type { Signer } from '@xmtp/browser-sdk';
 
@@ -84,13 +84,10 @@ export function XMTPConnectButton({ onClick, disabled, walletConnected }: { onCl
       const address = accounts[0] as `0x${string}`;
       console.log("XMTPConnectButton: Connected with UP address:", address);
 
-      // Create SCW signer for the UP
-      console.log("XMTPConnectButton: Creating SCW signer for XMTP client");
-      const chainId = await provider.request({ method: 'eth_chainId' });
-      console.log("XMTPConnectButton: Current chain ID:", chainId);
-
-      const signer = createSCWSigner(address, chainId);
-      console.log("XMTPConnectButton: Created SCW signer, initializing XMTP client");
+      // Create direct LUKSO signer for the UP
+      console.log("XMTPConnectButton: Creating direct LUKSO signer for XMTP client");
+      const signer = createDirectLuksoSigner(address);
+      console.log("XMTPConnectButton: Created direct LUKSO signer, initializing XMTP client");
 
       // Initialize XMTP client with retries
       let client;
