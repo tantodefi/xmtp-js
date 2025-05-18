@@ -43,12 +43,6 @@ export const isLuksoUPProvider = (provider: any): boolean => {
   );
 };
 
-// Extend the Signer type to include optional chain ID support
-interface ExtendedSigner extends Signer {
-  getChainId?: () => bigint;
-  getBlockNumber?: () => bigint;
-}
-
 // Add more specific type for LUKSO provider
 interface LuksoProvider {
   request: (args: { method: string; params?: any[] }) => Promise<any>;
@@ -57,6 +51,7 @@ interface LuksoProvider {
   chainId?: string;
   networkVersion?: string;
   selectedAddress?: string;
+  [key: string]: any; // Allow indexing with string keys
 }
 
 /**
@@ -381,7 +376,7 @@ export const createDirectLuksoSigner = (
   }
   
   // Get LUKSO provider directly and ensure it has the request method
-  const provider = window.lukso as LuksoProvider & { request: NonNullable<LuksoProvider['request']> };
+  const provider = window.lukso as LuksoProvider;
 
   // Ensure address is lowercase
   const normalizedAddress = address.toLowerCase() as `0x${string}`;
@@ -396,8 +391,8 @@ export const createDirectLuksoSigner = (
   
   // Create a signer that exactly matches XMTP's requirements
   return {
-    // Use EOA type since XMTP doesn't have a verifier for SCW signatures
-    type: "EOA" as const,
+    // Use SCW type since we're dealing with a smart contract wallet
+    type: "SCW" as const,
     
     // Return the blockchain address identifier in the exact format XMTP expects
     getIdentifier: () => {
@@ -407,6 +402,12 @@ export const createDirectLuksoSigner = (
       };
       console.log("LUKSO signer getIdentifier called:", identifier);
       return identifier;
+    },
+    
+    // Required for SCW signers
+    getChainId: () => {
+      // LUKSO mainnet chain ID is 42 (0x2a)
+      return BigInt(42);
     },
     
     // Sign a message and return bytes
@@ -424,10 +425,14 @@ export const createDirectLuksoSigner = (
         // For XMTP authorization messages, we need to handle them specially
         if (message === "XMTP Authorization") {
           console.log("Handling XMTP Authorization message");
+          // Add Ethereum prefix to message
+          const prefixedMessage = `\x19Ethereum Signed Message:\n${message.length}${message}`;
+          
           const signature = await provider.request({
             method: 'personal_sign',
-            params: [message, normalizedAddress]
+            params: [prefixedMessage, normalizedAddress]
           });
+          
           console.log("XMTP Authorization signature details:", {
             signature,
             signatureLength: signature.length,
@@ -448,10 +453,14 @@ export const createDirectLuksoSigner = (
             extractedPrefix: actualMessage.substring(0, 50) + "..."
           });
           
+          // Add Ethereum prefix to message
+          const prefixedMessage = `\x19Ethereum Signed Message:\n${actualMessage.length}${actualMessage}`;
+          
           const signature = await provider.request({
             method: 'personal_sign',
-            params: [actualMessage, normalizedAddress]
+            params: [prefixedMessage, normalizedAddress]
           });
+          
           console.log("Inbox authentication signature details:", {
             signature,
             signatureLength: signature.length,
@@ -461,12 +470,15 @@ export const createDirectLuksoSigner = (
           return toBytes(signature as `0x${string}`);
         }
 
-        // For all other messages, use standard signing
+        // For all other messages, use standard signing with prefix
         console.log("Handling standard message");
+        const prefixedMessage = `\x19Ethereum Signed Message:\n${message.length}${message}`;
+        
         const signature = await provider.request({
           method: 'personal_sign',
-          params: [message, normalizedAddress]
+          params: [prefixedMessage, normalizedAddress]
         });
+        
         console.log("Standard message signature details:", {
           signature,
           signatureLength: signature.length,
