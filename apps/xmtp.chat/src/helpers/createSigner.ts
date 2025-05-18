@@ -43,11 +43,14 @@ export const isLuksoUPProvider = (provider: any): boolean => {
   );
 };
 
-// Add type definition for LUKSO provider
+// Add more specific type for LUKSO provider
 interface LuksoProvider {
   request: (args: { method: string; params?: any[] }) => Promise<any>;
   isLukso?: boolean;
   isUP?: boolean;
+  chainId?: string;
+  networkVersion?: string;
+  selectedAddress?: string;
 }
 
 /**
@@ -372,15 +375,15 @@ export const createDirectLuksoSigner = (
   }
   
   // Get LUKSO provider directly and ensure it has the request method
-  const provider = window.lukso as { request: (args: { method: string; params?: any[] }) => Promise<any> };
+  const provider = window.lukso as Required<Pick<LuksoProvider, 'request'>>;
 
   // Ensure address is lowercase
   const normalizedAddress = address.toLowerCase() as `0x${string}`;
   
   // Create a signer that exactly matches XMTP's requirements
   return {
-    // Must be exactly "EOA" for standard wallets
-    type: "EOA" as const,
+    // Use SCW type since LUKSO UP is a smart contract wallet
+    type: "SCW" as const,
     
     // Return the blockchain address identifier in the exact format XMTP expects
     getIdentifier: () => ({
@@ -417,7 +420,13 @@ export const createDirectLuksoSigner = (
         console.error("Error signing message with LUKSO provider:", error);
         throw error;
       }
-    }
+    },
+
+    // Add chain ID support for LUKSO mainnet
+    getChainId: () => BigInt(42),
+
+    // Add block number support
+    getBlockNumber: () => BigInt(0)
   };
 };
 
