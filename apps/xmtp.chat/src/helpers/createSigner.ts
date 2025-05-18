@@ -45,7 +45,7 @@ export const isLuksoUPProvider = (provider: any): boolean => {
 
 // Add type definition for LUKSO provider
 interface LuksoProvider {
-  request: (args: { method: string; params: any[] }) => Promise<any>;
+  request: (args: { method: string; params?: any[] }) => Promise<any>;
   isLukso?: boolean;
   isUP?: boolean;
 }
@@ -195,6 +195,18 @@ export const createEOASigner = (
   };
 };
 
+// Supported chain IDs for XMTP
+const SUPPORTED_CHAIN_IDS = new Set([
+  '1',      // Ethereum Mainnet
+  '8453',   // Base
+  '42161',  // Arbitrum
+  '10',     // Optimism
+  '137',    // Polygon
+  '324',    // zkSync
+  '59144',  // Linea
+  '42'      // LUKSO
+]);
+
 /**
  * Creates a Smart Contract Wallet signer for XMTP that works with LUKSO Universal Profile.
  * This follows the XMTP SCW signer specification exactly.
@@ -205,73 +217,86 @@ export const createEOASigner = (
  */
 export const createSCWSigner = (
   address: `0x${string}`,
-  chainId: bigint | number,
+  chainId: string | number
 ): Signer => {
-  // Ensure the address is lowercase as required by XMTP
-  const normalizedAddress = address.toLowerCase() as `0x${string}`;
+  // Convert chainId to string for comparison
+  const chainIdStr = chainId.toString();
   
-  // Ensure chainId is bigint
-  const chainIdBigInt = typeof chainId === 'number' ? BigInt(chainId) : chainId;
-  
-  // Check if provider is available and properly typed
-  if (!window.lukso || typeof (window.lukso as LuksoProvider).request !== 'function') {
+  // Validate chain ID
+  if (!SUPPORTED_CHAIN_IDS.has(chainIdStr)) {
+    console.warn(`Chain ID ${chainIdStr} is not officially supported by XMTP. This may cause issues.`);
+  }
+
+  // Initialize block number cache
+  let cachedBlockNumber = BigInt(0);
+  let lastBlockFetch = 0;
+  const BLOCK_CACHE_DURATION = 10000; // 10 seconds
+
+  // Clone the provider to avoid mutation issues and ensure it has the request method
+  if (!window.lukso?.request) {
     throw new Error("LUKSO provider not available or missing request method");
   }
-  
-  // Get the current block number and cache it
-  let cachedBlockNumber: bigint = BigInt(0);
-  
-  // Clone the provider to a local constant with proper typing and non-null assertion
   const provider = window.lukso as LuksoProvider & { request: NonNullable<LuksoProvider['request']> };
-  
-  // Pre-fetch block number if possible (but don't await)
-  try {
-    provider.request({
-      method: 'eth_blockNumber',
-      params: []
-    }).then((result) => {
-      if (result) {
-        cachedBlockNumber = BigInt(result as string);
-      }
-    }).catch(() => {
-      // Ignore errors in pre-fetching
-    });
-  } catch {
-    // Ignore any errors in pre-fetching
-  }
-  
-  // Create a fully XMTP-spec compliant SCW signer
+
+  // Pre-fetch block number without awaiting
+  const prefetchBlockNumber = async () => {
+    try {
+      const blockNumber = await provider.request({ method: 'eth_blockNumber' });
+      cachedBlockNumber = BigInt(blockNumber);
+      lastBlockFetch = Date.now();
+    } catch (error) {
+      console.warn('Failed to prefetch block number:', error);
+    }
+  };
+  prefetchBlockNumber();
+
   return {
-    // Must be exactly "SCW" for Smart Contract Wallets
-    type: "SCW" as const,
-    
-    // Returns the Ethereum address identifier (must be lowercase)
+    type: "SCW",
     getIdentifier: () => ({
-      identifierKind: "Ethereum" as const,
-      identifier: normalizedAddress,
+      identifier: address.toLowerCase(),
+      identifierKind: "Ethereum",
     }),
-    
-    // Signs a message using the Universal Profile
-    signMessage: async (message: string): Promise<Uint8Array> => {
+    signMessage: async (message: string) => {
       try {
-        // Use personal_sign which is supported by UP and adds Ethereum prefix
+        console.log("SCW signer: Signing message with LUKSO provider");
+        
+        // Add Ethereum prefix to message if not already present
+        const prefixedMessage = message.startsWith('\x19Ethereum Signed Message:\n') 
+          ? message 
+          : `\x19Ethereum Signed Message:\n${message.length}${message}`;
+
+        // Request signature from LUKSO provider
         const signature = await provider.request({
           method: 'personal_sign',
-          params: [message, normalizedAddress]
+          params: [prefixedMessage, address],
         });
+
+        console.log("SCW signer: Signature obtained:", signature);
+
+        // Convert hex signature to Uint8Array
+        const signatureBytes = new Uint8Array(Buffer.from(signature.slice(2), 'hex'));
         
-        return toBytes(signature as `0x${string}`);
+        // Log signature details for debugging
+        console.log("SCW signer: Signature details:", {
+          length: signatureBytes.length,
+          hex: signature,
+          address,
+          chainId: chainIdStr
+        });
+
+        return signatureBytes;
       } catch (error) {
-        console.error("Error signing message with SCW signer:", error);
-        throw error;
+        console.error('Error signing message with SCW:', error);
+        throw new Error(`SCW signature failed: ${(error as Error).message}`);
       }
     },
-    
-    // Required for SCW signers: return the chain ID (must return bigint directly)
-    getChainId: () => chainIdBigInt,
-    
-    // Optional: get block number for signature verification (must return bigint directly)
-    getBlockNumber: () => cachedBlockNumber
+    getChainId: () => {
+      return BigInt(chainId);
+    },
+    getBlockNumber: () => {
+      // Return cached block number
+      return cachedBlockNumber;
+    }
   };
 };
 
