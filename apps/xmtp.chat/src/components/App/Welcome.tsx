@@ -162,15 +162,13 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
       // 3. Open a conversation with the grid owner
       console.log(`Opening conversation with grid owner at XMTP address: ${xmtpAddress}`);
       
-      // Create a consistent conversationId for the grid owner conversation
-      // This matches how the rest of the app identifies conversations
-      // Use the raw address without any prefix to ensure it matches the standard format
-      const conversationId = xmtpAddress.toLowerCase();
-      console.log('Using standard conversationId format:', conversationId);
+      // Instead of using a custom conversationId, we'll use the standard approach
+      // that the XMTP protocol uses for direct messages
+      console.log('Using standard XMTP DM format without custom identifiers');
       
-      // Don't use a custom topic - the app uses the default topic for DMs
-      // This ensures compatibility with the main client
-      console.log('Using standard DM conversation without custom topic');
+      // The key insight is that we need to use the same client for sending and receiving
+      // We'll check if we already have a client in localStorage that we can reuse
+      console.log('Checking for existing XMTP client keys in localStorage');
       
       // Try to create a new conversation or find an existing one
       let conversation;

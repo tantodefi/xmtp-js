@@ -6,6 +6,8 @@
 
 > **Learn more about decentralized identity and XMTP:** [https://xmtp.org/identity](https://xmtp.org/identity)
 
+> **Checkout the LUKSO XMTP agent example:** [xmtp-lukso-agent](https://github.com/tantodefi/xmtp-agent-examples/tree/main/examples/xmtp-lukso-agent)
+
 ---
 
 ## Features
