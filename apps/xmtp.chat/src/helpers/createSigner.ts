@@ -238,6 +238,22 @@ export const createSCWSigner = (
   }
   const provider = window.lukso as LuksoProvider & { request: NonNullable<LuksoProvider['request']> };
 
+  // Helper function to convert hex to Uint8Array
+  const hexToUint8Array = (hex: string): Uint8Array => {
+    // Remove '0x' prefix if present
+    const cleanHex = hex.startsWith('0x') ? hex.slice(2) : hex;
+    
+    // Create a new Uint8Array with half the length of the hex string
+    const bytes = new Uint8Array(cleanHex.length / 2);
+    
+    // Convert each pair of hex characters to a byte
+    for (let i = 0; i < cleanHex.length; i += 2) {
+      bytes[i / 2] = parseInt(cleanHex.slice(i, i + 2), 16);
+    }
+    
+    return bytes;
+  };
+
   // Pre-fetch block number without awaiting
   const prefetchBlockNumber = async () => {
     try {
@@ -273,8 +289,8 @@ export const createSCWSigner = (
 
         console.log("SCW signer: Signature obtained:", signature);
 
-        // Convert hex signature to Uint8Array
-        const signatureBytes = new Uint8Array(Buffer.from(signature.slice(2), 'hex'));
+        // Convert hex signature to Uint8Array using browser-compatible method
+        const signatureBytes = hexToUint8Array(signature);
         
         // Log signature details for debugging
         console.log("SCW signer: Signature details:", {
