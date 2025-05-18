@@ -128,19 +128,47 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
         const chainId = parseInt(chainIdHex, 16);
         console.log(`Current chain ID: ${chainId}`);
 
-        // Import and create the SCW signer
-        const { createSCWSigner } = await import('@/helpers/createSigner');
-        const scwSigner = createSCWSigner(upAddress as `0x${string}`, chainId);
+        // Import and create the UP and SCW signers
+        const { createUPSigner, createSCWSigner } = await import('@/helpers/createSigner');
 
-        // Create an XMTP client with the SCW signer
-        console.log('Creating XMTP client with SCW signer');
+        // Use the basic EOA UP signer as our primary approach (more compatible with XMTP)
+        const upSigner = createUPSigner(upAddress as `0x${string}`);
+
+        console.log('UP signer details:', {
+          type: upSigner.type,
+          address: upAddress
+        });
+
+        // Create an XMTP client with the UP signer
+        console.log('Creating XMTP client with UP signer');
         const { Client } = await import('@xmtp/browser-sdk');
 
-        // Create the client
-        const client = await Client.create(scwSigner, {
-          env: 'dev'
-        });
-        console.log('XMTP client created successfully:', client);
+        let client;
+        try {
+          // First try with EOA UP signer
+          console.log('Attempting to create client with UP signer');
+          client = await Client.create(upSigner, {
+            env: 'dev',
+            loggingLevel: 'debug'
+          });
+          console.log('XMTP client created successfully with UP signer:', client);
+        } catch (upError) {
+          console.error('Error creating client with UP signer:', upError);
+
+          // Try with SCW as fallback
+          console.log('Falling back to SCW signer');
+          try {
+            const scwSigner = createSCWSigner(upAddress as `0x${string}`, chainId);
+            client = await Client.create(scwSigner, {
+              env: 'dev',
+              loggingLevel: 'debug'
+            });
+            console.log('XMTP client created successfully with SCW fallback:', client);
+          } catch (scwError) {
+            console.error('SCW fallback also failed:', scwError);
+            throw new Error('Failed to create XMTP client with both UP and SCW signers');
+          }
+        }
 
         // Open a conversation with the grid owner
         console.log(`Opening conversation with grid owner at XMTP address: ${xmtpAddress}`);

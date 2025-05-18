@@ -156,61 +156,113 @@ export function LuksoProfile({ address = DEFAULT_ADDRESS, onXmtpAddressFound, cu
               }
             } catch (jsonError) {
               console.log('LSP data is not in JSON format, trying alternative extraction methods');
+            }
 
-              // LSP data might be directly an Ethereum address encoded in bytes
-              // Try to handle hex-encoded Ethereum address format
-              if (existingData.length >= 42) {
-                // Check if this is a hex-encoded address (starts with 0x and is 42 chars)
-                const possibleAddress = existingData.replace(/^0x0+/, '0x'); // Remove leading zeros after 0x
+            // LSP data might be directly an Ethereum address encoded in bytes
+            // Check if LSP data matches pattern of LUKSO LSP0 metadata format
+            // LUKSO Universal Profile often stores data in ERC725Y format:
+            // - First 2 bytes might be a version/type flag (0x0000)
+            // - Next 10 bytes can be a key metadata
+            // - Then 20 bytes might be an address or other data
+            if (existingData && existingData.length >= 42) {
+              console.log('Parsing raw LSP metadata:', existingData);
 
-                if (/^0x[0-9a-fA-F]{40}$/.test(possibleAddress)) {
-                  console.log('Found XMTP address in UP metadata as direct hex:', possibleAddress);
+              // First, try looking for direct address pattern
+              // Check if this looks like an ETH address after removing leading zeros after 0x
+              const possibleAddress = existingData.replace(/^0x0+/, '0x');
+              if (/^0x[0-9a-fA-F]{40}$/.test(possibleAddress)) {
+                console.log('Found XMTP address in UP metadata as direct hex:', possibleAddress);
 
-                  if (isMounted) {
-                    setProfileData(prev => ({
-                      ...prev,
-                      xmtpAddress: possibleAddress.toLowerCase()
-                    }));
+                // Process the address
+                const normalizedAddress = possibleAddress.toLowerCase();
+                if (isMounted) {
+                  setProfileData(prev => ({
+                    ...prev,
+                    xmtpAddress: normalizedAddress
+                  }));
 
-                    if (onXmtpAddressFound) {
-                      onXmtpAddressFound(possibleAddress.toLowerCase());
-                    }
+                  if (onXmtpAddressFound) {
+                    onXmtpAddressFound(normalizedAddress);
                   }
+                }
+                return normalizedAddress;
+              }
 
-                  return possibleAddress.toLowerCase();
-                } else {
-                  // Try to extract address from the LSP data by looking for patterns
-                  // Common pattern: data contains a 20-byte address somewhere
-                  const hexData = existingData.slice(2); // Remove 0x prefix
+              // Next, try to extract from a more complex format
+              // Look for ETH address pattern in the raw data (20 bytes = 40 hex chars)
+              const hexData = existingData.slice(2); // Remove 0x prefix
 
-                  // Scan through the data in 40-char chunks (20 bytes) to find possible ETH address
-                  for (let i = 0; i < hexData.length - 40; i += 2) {
-                    const candidateAddr = '0x' + hexData.substring(i, i + 40);
-                    // Basic validation - check if it's a valid hex string
-                    if (/^0x[0-9a-fA-F]{40}$/.test(candidateAddr)) {
-                      console.log('Found potential ETH address in UP XMTP data:', candidateAddr);
+              // If we follow the format of LSP0 data:
+              // Try to extract potential address parts with offsets
+              // Skip variant byte offsets to try to locate an ETH address
+              const potentialOffsets = [0, 2, 4, 8, 12, 16, 24, 32];
 
-                      if (isMounted) {
-                        setProfileData(prev => ({
-                          ...prev,
-                          xmtpAddress: candidateAddr.toLowerCase()
-                        }));
+              for (const offset of potentialOffsets) {
+                if (offset + 40 <= hexData.length) {
+                  const candidateAddrHex = hexData.substring(offset, offset + 40);
+                  const candidateAddr = '0x' + candidateAddrHex;
 
-                        if (onXmtpAddressFound) {
-                          onXmtpAddressFound(candidateAddr.toLowerCase());
-                        }
+                  // Basic validation - check if it's a valid hex string that looks like an address
+                  if (/^0x[0-9a-fA-F]{40}$/.test(candidateAddr)) {
+                    console.log(`Found potential ETH address at offset ${offset} in UP XMTP data:`, candidateAddr);
+
+                    // Normalize the address
+                    const normalizedAddr = candidateAddr.toLowerCase();
+
+                    if (isMounted) {
+                      setProfileData(prev => ({
+                        ...prev,
+                        xmtpAddress: normalizedAddr
+                      }));
+
+                      if (onXmtpAddressFound) {
+                        onXmtpAddressFound(normalizedAddr);
                       }
-
-                      return candidateAddr.toLowerCase();
                     }
+
+                    return normalizedAddr;
                   }
                 }
               }
 
-              console.log('Could not extract XMTP address from UP data');
+              // Attempt to look for IPFS hashes or other content identifiers in the data
+              // They might contain the actual XMTP data
+              try {
+                // Use detailed logging to help debug
+                console.log('Searching for content identifiers in UP data...');
+
+                // Look for IPFS hash pattern in hex data (CID prefix for IPFS)
+                const ipfsMarkers = ['ipfs', 'Qm', 'baf'];
+                let foundIPFS = false;
+
+                // Convert to text to look for markers
+                const textData = Buffer.from(hexData, 'hex').toString();
+
+                // Log the text representation
+                console.log('UP data as text:', textData);
+
+                // Check for any IPFS markers
+                for (const marker of ipfsMarkers) {
+                  if (textData.includes(marker)) {
+                    console.log(`Found potential IPFS marker '${marker}' in UP data`);
+                    foundIPFS = true;
+                  }
+                }
+
+                if (foundIPFS) {
+                  console.log('UP data may contain IPFS reference that needs to be resolved');
+                  // Note: We could add IPFS resolution here if needed
+                }
+              } catch (textError) {
+                console.log('Error processing UP data as text:', textError);
+              }
             }
+
+            console.log('Could not extract XMTP address from UP data');
+            return null;
           } catch (parseError) {
             console.error('Error parsing XMTP metadata:', parseError);
+            return null;
           }
         } else {
           console.log('No XMTP metadata found in UP');

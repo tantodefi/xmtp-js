@@ -119,7 +119,7 @@ export function XMTPConnectButton({ onClick, disabled, walletConnected }: { onCl
           console.log("XMTPConnectButton: Connected with UP address:", upAddress);
 
           try {
-            console.log("XMTPConnectButton: Creating SCW signer for XMTP client");
+            console.log("XMTPConnectButton: Creating signer for XMTP client");
 
             // Get the current chain ID from the LUKSO provider
             const chainIdHex = await window.lukso.request({
@@ -131,11 +131,14 @@ export function XMTPConnectButton({ onClick, disabled, walletConnected }: { onCl
             const chainId = parseInt(chainIdHex, 16);
             console.log(`XMTPConnectButton: Current chain ID: ${chainId}`);
 
-            // Import and create the SCW signer
-            const { createSCWSigner } = await import('@/helpers/createSigner');
-            const scwSigner = createSCWSigner(upAddress, chainId);
+            // Import and create the EOA signer as our primary approach
+            // Based on the error we've seen, the EOA approach is more reliable with XMTP
+            const { createUPSigner, createSCWSigner } = await import('@/helpers/createSigner');
 
-            console.log("XMTPConnectButton: Created SCW signer, initializing XMTP client");
+            // Use EOA signer by default as it seems more compatible with XMTP
+            const upSigner = createUPSigner(upAddress);
+
+            console.log("XMTPConnectButton: Created UP signer, initializing XMTP client");
 
             // Implement a retry mechanism for client creation
             let newClient;
@@ -159,9 +162,9 @@ export function XMTPConnectButton({ onClick, disabled, walletConnected }: { onCl
 
                 console.log("XMTPConnectButton: User signed authorization message");
 
-                // Initialize XMTP client with the SCW signer
+                // Initialize XMTP client with the UP signer
                 newClient = await initialize({
-                  signer: scwSigner,
+                  signer: upSigner,
                   loggingLevel: 'debug',
                   env: 'dev'
                 });
@@ -172,6 +175,30 @@ export function XMTPConnectButton({ onClick, disabled, walletConnected }: { onCl
                 }
               } catch (error) {
                 console.warn(`XMTPConnectButton: Client creation attempt ${attemptCount} failed:`, error);
+
+                // If all EOA attempts fail and it's the last attempt, try SCW as a fallback
+                if (attemptCount === maxAttempts) {
+                  console.log("XMTPConnectButton: Trying fallback to SCW signer");
+                  try {
+                    // Create SCW signer as fallback
+                    const scwSigner = createSCWSigner(upAddress, chainId);
+
+                    // Try with SCW signer
+                    console.log("XMTPConnectButton: Attempting with SCW signer");
+                    newClient = await initialize({
+                      signer: scwSigner,
+                      loggingLevel: 'debug',
+                      env: 'dev'
+                    });
+
+                    if (newClient) {
+                      console.log("XMTPConnectButton: Successfully created client with SCW signer fallback");
+                      break;
+                    }
+                  } catch (fallbackError) {
+                    console.error("XMTPConnectButton: SCW signer fallback also failed:", fallbackError);
+                  }
+                }
 
                 if (attemptCount < maxAttempts) {
                   console.log(`XMTPConnectButton: Waiting before retry attempt ${attemptCount + 1}...`);
