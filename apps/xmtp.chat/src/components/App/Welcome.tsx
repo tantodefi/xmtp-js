@@ -128,46 +128,45 @@ function MessageGridOwnerForm({ gridOwnerAddress }: { gridOwnerAddress: string }
         const chainId = parseInt(chainIdHex, 16);
         console.log(`Current chain ID: ${chainId}`);
 
-        // Import and create the UP and SCW signers
-        const { createUPSigner, createSCWSigner } = await import('@/helpers/createSigner');
+        // Import and create the SCW signer
+        const { createSCWSigner } = await import('@/helpers/createSigner');
 
-        // Use the basic EOA UP signer as our primary approach (more compatible with XMTP)
-        const upSigner = createUPSigner(upAddress as `0x${string}`);
+        // Create SCW signer for the UP
+        const scwSigner = createSCWSigner(upAddress as `0x${string}`, chainId);
 
-        console.log('UP signer details:', {
-          type: upSigner.type,
-          address: upAddress
+        console.log('SCW signer created:', {
+          type: scwSigner.type,
+          address: upAddress,
+          chainId: chainId
         });
 
-        // Create an XMTP client with the UP signer
-        console.log('Creating XMTP client with UP signer');
+        // Create an XMTP client with the SCW signer
+        console.log('Creating XMTP client with SCW signer');
         const { Client } = await import('@xmtp/browser-sdk');
+
+        // Log additional diagnostic info about the underlying implementation
+        console.log('XMTP Client info:', {
+          sdkVersion: (Client as any).VERSION || 'unknown',
+          supportedChains: (Client as any).SUPPORTED_CHAIN_IDS || 'unknown',
+          signer: {
+            type: scwSigner.type,
+            hasGetChainId: typeof (scwSigner as any).getChainId === 'function',
+            hasGetBlockNumber: typeof (scwSigner as any).getBlockNumber === 'function'
+          }
+        });
 
         let client;
         try {
-          // First try with EOA UP signer
-          console.log('Attempting to create client with UP signer');
-          client = await Client.create(upSigner, {
+          // Create client with SCW signer
+          console.log('Attempting to create client with SCW signer');
+          client = await Client.create(scwSigner, {
             env: 'dev',
             loggingLevel: 'debug'
           });
-          console.log('XMTP client created successfully with UP signer:', client);
-        } catch (upError) {
-          console.error('Error creating client with UP signer:', upError);
-
-          // Try with SCW as fallback
-          console.log('Falling back to SCW signer');
-          try {
-            const scwSigner = createSCWSigner(upAddress as `0x${string}`, chainId);
-            client = await Client.create(scwSigner, {
-              env: 'dev',
-              loggingLevel: 'debug'
-            });
-            console.log('XMTP client created successfully with SCW fallback:', client);
-          } catch (scwError) {
-            console.error('SCW fallback also failed:', scwError);
-            throw new Error('Failed to create XMTP client with both UP and SCW signers');
-          }
+          console.log('XMTP client created successfully with SCW signer:', client);
+        } catch (error) {
+          console.error('Error creating client with SCW signer:', error);
+          throw new Error('Failed to create XMTP client with SCW signer');
         }
 
         // Open a conversation with the grid owner

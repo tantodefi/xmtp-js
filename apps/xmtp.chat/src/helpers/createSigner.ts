@@ -43,6 +43,13 @@ export const isLuksoUPProvider = (provider: any): boolean => {
   );
 };
 
+// Add type definition for LUKSO provider
+interface LuksoProvider {
+  request: (args: { method: string; params: any[] }) => Promise<any>;
+  isLukso?: boolean;
+  isUP?: boolean;
+}
+
 /**
  * Creates a signer for the XMTP protocol using a standard Ethereum wallet.
  * This function follows XMTP's strict Signer interface requirements.
@@ -206,31 +213,29 @@ export const createSCWSigner = (
   // Ensure chainId is bigint
   const chainIdBigInt = typeof chainId === 'number' ? BigInt(chainId) : chainId;
   
-  // Check if provider is available
-  if (!window.lukso || typeof window.lukso.request !== 'function') {
+  // Check if provider is available and properly typed
+  if (!window.lukso || typeof (window.lukso as LuksoProvider).request !== 'function') {
     throw new Error("LUKSO provider not available or missing request method");
   }
   
   // Get the current block number and cache it
   let cachedBlockNumber: bigint = BigInt(0);
   
-  // Clone the provider to a local constant to satisfy TypeScript
-  const provider = window.lukso;
+  // Clone the provider to a local constant with proper typing and non-null assertion
+  const provider = window.lukso as LuksoProvider & { request: NonNullable<LuksoProvider['request']> };
   
   // Pre-fetch block number if possible (but don't await)
   try {
-    if (provider && typeof provider.request === 'function') {
-      provider.request({
-        method: 'eth_blockNumber',
-        params: []
-      }).then((result) => {
-        if (result) {
-          cachedBlockNumber = BigInt(result as string);
-        }
-      }).catch(() => {
-        // Ignore errors in pre-fetching
-      });
-    }
+    provider.request({
+      method: 'eth_blockNumber',
+      params: []
+    }).then((result) => {
+      if (result) {
+        cachedBlockNumber = BigInt(result as string);
+      }
+    }).catch(() => {
+      // Ignore errors in pre-fetching
+    });
   } catch {
     // Ignore any errors in pre-fetching
   }
@@ -248,10 +253,6 @@ export const createSCWSigner = (
     
     // Signs a message using the Universal Profile
     signMessage: async (message: string): Promise<Uint8Array> => {
-      if (!provider || typeof provider.request !== 'function') {
-        throw new Error("LUKSO provider not available for signing");
-      }
-      
       try {
         // Use personal_sign which is supported by UP and adds Ethereum prefix
         const signature = await provider.request({
@@ -261,6 +262,7 @@ export const createSCWSigner = (
         
         return toBytes(signature as `0x${string}`);
       } catch (error) {
+        console.error("Error signing message with SCW signer:", error);
         throw error;
       }
     },
